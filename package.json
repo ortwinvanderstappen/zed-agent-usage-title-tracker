@@ -11,9 +11,6 @@
     "usage:codex": "node usage.mjs codex",
     "test": "node test/run.mjs",
     "test:real": "node test/real.mjs",
-    "test:real:codex": "node test/real.mjs codex",
-    "shim": "node scripts/install-shim.mjs",
-    "shim:status": "node scripts/install-shim.mjs --status",
-    "shim:uninstall": "node scripts/install-shim.mjs --uninstall"
+    "test:real:codex": "node test/real.mjs codex"
   }
 }
