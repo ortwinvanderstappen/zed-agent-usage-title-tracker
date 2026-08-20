@@ -4,7 +4,7 @@ Shows your agent plan usage — rolling window and weekly — in the Zed agent t
 title.
 
 ```
-Fix auth bug · 5h 16% · wk 62%
+Hello, world! · 5h 16% · wk 62%
 ```
 
 Ships with providers for **Claude Code** and **Codex**, and is modular so other
