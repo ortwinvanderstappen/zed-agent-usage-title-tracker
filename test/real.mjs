@@ -15,7 +15,7 @@ const provider = process.argv[2] ?? "claude";
 
 const child = spawn(process.execPath, [proxy, "--provider", provider], {
   stdio: ["pipe", "pipe", "inherit"],
-  env: { ...process.env, CLAUDE_USAGE_DEBUG: "1" },
+  env: { ...process.env, ZED_AGENT_USAGE_DEBUG: "1" },
 });
 
 const send = (m) => child.stdin.write(`${JSON.stringify(m)}\n`);

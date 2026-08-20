@@ -1,4 +1,4 @@
-# claude-usage
+# zed-agent-usage-title-tracker
 
 Shows your agent plan usage — rolling window and weekly — in the Zed agent thread
 title.
@@ -49,12 +49,12 @@ Zed's.
      "Claude + usage": {
        "type": "custom",
        "command": "/usr/local/bin/node",
-       "args": ["/path/to/claude-usage/proxy.mjs"]
+       "args": ["/path/to/zed-agent-usage-title-tracker/proxy.mjs"]
      },
      "Codex + usage": {
        "type": "custom",
        "command": "/usr/local/bin/node",
-       "args": ["/path/to/claude-usage/proxy.mjs", "--provider", "codex"]
+       "args": ["/path/to/zed-agent-usage-title-tracker/proxy.mjs", "--provider", "codex"]
      }
    }
    ```
@@ -75,7 +75,7 @@ Paste this into Claude Code (or the Zed agent panel), replacing the path on the
 first line:
 
 ````text
-Set up the claude-usage ACP proxy in my Zed settings.
+Set up the zed-agent-usage-title-tracker ACP proxy in my Zed settings.
 
 The repo is checked out at: <PATH TO THIS REPO>
 
@@ -173,12 +173,12 @@ rate-limited to one fetch per 15s), and every 60s.
 
 | Env var | Default | Purpose |
 | --- | --- | --- |
-| `CLAUDE_USAGE_PROVIDER` | `claude` | Provider id, if `--provider` is not passed |
-| `CLAUDE_USAGE_PROVIDER_PATH` | – | Absolute path to an out-of-tree provider |
-| `CLAUDE_USAGE_REFRESH_MS` | `60000` | Background refresh interval |
-| `CLAUDE_USAGE_MIN_INTERVAL_MS` | `15000` | Minimum gap between fetches |
-| `CLAUDE_USAGE_DEBUG` | – | `1` logs to stderr (Zed: `dev: open acp logs`) |
-| `CLAUDE_USAGE_ADAPTER_COMMAND` / `_ARGS` | auto | Override the wrapped adapter |
+| `ZED_AGENT_USAGE_PROVIDER` | `claude` | Provider id, if `--provider` is not passed |
+| `ZED_AGENT_USAGE_PROVIDER_PATH` | – | Absolute path to an out-of-tree provider |
+| `ZED_AGENT_USAGE_REFRESH_MS` | `60000` | Background refresh interval |
+| `ZED_AGENT_USAGE_MIN_INTERVAL_MS` | `15000` | Minimum gap between fetches |
+| `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (Zed: `dev: open acp logs`) |
+| `ZED_AGENT_USAGE_ADAPTER_COMMAND` / `_ARGS` | auto | Override the wrapped adapter |
 | `CLAUDE_AGENT_SDK` | auto | Override the Claude SDK `sdk.mjs` path |
 | `CODEX_BIN` | auto | Override the `codex` binary path |
 

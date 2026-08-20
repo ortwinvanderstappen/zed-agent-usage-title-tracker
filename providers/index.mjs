@@ -37,10 +37,10 @@ function validate(provider, source) {
   return provider;
 }
 
-/** Load a provider by id, or from CLAUDE_USAGE_PROVIDER_PATH for out-of-tree
+/** Load a provider by id, or from ZED_AGENT_USAGE_PROVIDER_PATH for out-of-tree
  *  providers (an absolute path to a module with the same default export). */
 export async function loadProvider(id) {
-  const override = process.env.CLAUDE_USAGE_PROVIDER_PATH;
+  const override = process.env.ZED_AGENT_USAGE_PROVIDER_PATH;
   if (override) {
     const mod = await import(`file://${path.resolve(override)}`);
     return validate(mod.default, override);

@@ -116,7 +116,11 @@ export default {
         method: "initialize",
         params: {
           capabilities: { experimentalApi: true, requestAttestation: false },
-          clientInfo: { name: "claude-usage", version: "0.2.0", title: "claude-usage" },
+          clientInfo: {
+            name: "zed-agent-usage-title-tracker",
+            version: "0.3.0",
+            title: "zed-agent-usage-title-tracker",
+          },
         },
       });
     });

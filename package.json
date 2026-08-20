@@ -1,6 +1,6 @@
 {
-  "name": "claude-usage",
-  "version": "0.2.0",
+  "name": "zed-agent-usage-title-tracker",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "author": "Ortwin Van der Stappen",

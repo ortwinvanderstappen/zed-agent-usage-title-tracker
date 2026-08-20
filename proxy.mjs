@@ -18,12 +18,12 @@ import { spawn } from "node:child_process";
 import { loadProvider } from "./providers/index.mjs";
 import { formatWindows, sameWindows, SUFFIX_RE } from "./lib/windows.mjs";
 
-const REFRESH_MS = Number(process.env.CLAUDE_USAGE_REFRESH_MS ?? 60_000);
-const MIN_INTERVAL_MS = Number(process.env.CLAUDE_USAGE_MIN_INTERVAL_MS ?? 15_000);
-const DEBUG = process.env.CLAUDE_USAGE_DEBUG === "1";
+const REFRESH_MS = Number(process.env.ZED_AGENT_USAGE_REFRESH_MS ?? 60_000);
+const MIN_INTERVAL_MS = Number(process.env.ZED_AGENT_USAGE_MIN_INTERVAL_MS ?? 15_000);
+const DEBUG = process.env.ZED_AGENT_USAGE_DEBUG === "1";
 
 const log = (msg) => {
-  if (DEBUG) process.stderr.write(`[claude-usage] ${msg}\n`);
+  if (DEBUG) process.stderr.write(`[agent-usage] ${msg}\n`);
 };
 
 function providerId() {
@@ -31,7 +31,7 @@ function providerId() {
   const flag = argv.indexOf("--provider");
   if (flag !== -1 && argv[flag + 1]) return argv[flag + 1];
   const bare = argv.find((a) => !a.startsWith("-"));
-  return bare ?? process.env.CLAUDE_USAGE_PROVIDER ?? "claude";
+  return bare ?? process.env.ZED_AGENT_USAGE_PROVIDER ?? "claude";
 }
 
 const provider = await loadProvider(providerId());
@@ -40,11 +40,11 @@ log(`provider: ${provider.id}`);
 // ---------------------------------------------------------------- adapter
 
 function adapterCommand() {
-  if (process.env.CLAUDE_USAGE_ADAPTER_COMMAND) {
+  if (process.env.ZED_AGENT_USAGE_ADAPTER_COMMAND) {
     return {
-      command: process.env.CLAUDE_USAGE_ADAPTER_COMMAND,
-      args: process.env.CLAUDE_USAGE_ADAPTER_ARGS
-        ? JSON.parse(process.env.CLAUDE_USAGE_ADAPTER_ARGS)
+      command: process.env.ZED_AGENT_USAGE_ADAPTER_COMMAND,
+      args: process.env.ZED_AGENT_USAGE_ADAPTER_ARGS
+        ? JSON.parse(process.env.ZED_AGENT_USAGE_ADAPTER_ARGS)
         : [],
     };
   }
@@ -60,7 +60,7 @@ const child = spawn(command, args, {
 });
 
 child.on("error", (err) => {
-  process.stderr.write(`[claude-usage] failed to spawn adapter: ${err.message}\n`);
+  process.stderr.write(`[agent-usage] failed to spawn adapter: ${err.message}\n`);
   process.exit(1);
 });
 child.on("exit", (code, signal) => process.exit(signal ? 1 : (code ?? 0)));

@@ -76,7 +76,7 @@ API-key billing; the proxy then leaves titles untouched.
 To keep a provider outside this repo, point at it directly:
 
 ```json
-"env": { "CLAUDE_USAGE_PROVIDER_PATH": "/Users/me/my-provider.mjs" }
+"env": { "ZED_AGENT_USAGE_PROVIDER_PATH": "/Users/me/my-provider.mjs" }
 ```
 
 That takes precedence over `--provider`.

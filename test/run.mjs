@@ -13,8 +13,8 @@ const child = spawn(process.execPath, [proxy], {
   stdio: ["pipe", "pipe", "inherit"],
   env: {
     ...process.env,
-    CLAUDE_USAGE_PROVIDER_PATH: path.join(here, "fake-provider.mjs"),
-    CLAUDE_USAGE_DEBUG: "1",
+    ZED_AGENT_USAGE_PROVIDER_PATH: path.join(here, "fake-provider.mjs"),
+    ZED_AGENT_USAGE_DEBUG: "1",
   },
 });
 

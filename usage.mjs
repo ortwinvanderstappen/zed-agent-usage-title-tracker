@@ -8,7 +8,7 @@
 import { formatWindows } from "./lib/windows.mjs";
 import { listProviders, loadProvider } from "./providers/index.mjs";
 
-const id = process.argv[2] ?? process.env.CLAUDE_USAGE_PROVIDER ?? "claude";
+const id = process.argv[2] ?? process.env.ZED_AGENT_USAGE_PROVIDER ?? "claude";
 
 try {
   const provider = await loadProvider(id);
