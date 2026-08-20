@@ -1,0 +1,16 @@
+{
+  "name": "claude-usage",
+  "version": "0.2.0",
+  "private": true,
+  "license": "MIT",
+  "author": "Ortwin Van der Stappen",
+  "description": "ACP proxy that shows agent plan usage (rolling + weekly) in the Zed agent thread title",
+  "type": "module",
+  "scripts": {
+    "usage": "node usage.mjs",
+    "usage:codex": "node usage.mjs codex",
+    "test": "node test/run.mjs",
+    "test:real": "node test/real.mjs",
+    "test:real:codex": "node test/real.mjs codex"
+  }
+}
