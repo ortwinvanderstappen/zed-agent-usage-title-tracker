@@ -106,11 +106,43 @@ Please:
 5. Tell me to pick "Claude + usage" or "Codex + usage" in Zed's agent panel picker.
 ````
 
+## Icons: the registry-shim alternative
+
+A `type: custom` agent has no icon. Zed takes agent icons from the ACP registry
+entry (`"icon": "https://cdn.agentclientprotocol.com/.../claude-acp.svg"`, cached
+as `registry/icons/<id>.svg`), and neither ACP nor Zed offers another route:
+
+- ACP's `agentInfo` is `{name, title, version}` — the protocol has no icon field,
+  so there is nothing for the proxy to relay.
+- `CustomAgentServerSettings::Custom` accepts only `command`, `args`, `env`,
+  `default_config_options`, `favorite_config_option_values`.
+- Naming a custom entry after a registry id does **not** work: Zed resolves that
+  key from the registry and ignores the `type: custom` override entirely.
+
+If the icons matter more than the caveat below, shim the adapter instead of
+adding a custom entry. Zed's built-in `claude-acp` / `codex-acp` agents then run
+through the proxy with their icons intact:
+
+```sh
+npm run shim:status         # where things stand
+npm run shim                # install for every provider (or: npm run shim -- claude)
+npm run shim:uninstall      # restore the untouched adapters
+```
+
+It moves the adapter's `dist/index.js` aside to `dist/index.real.js` and puts a
+launcher in its place. With the shim installed, remove the `"* + usage"` entries
+from `agent_servers` — the built-in agents now carry the usage titles.
+
+**Caveat:** Zed overwrites `dist/index.js` when it installs a new adapter
+version, silently removing the shim. `npm run shim:status` reports
+`wiped-by-update` in that case; re-run `npm run shim` to reinstate it.
+
 ## Layout
 
 ```
 proxy.mjs             generic ACP relay + title injection
 usage.mjs             CLI: print a provider's snapshot
+scripts/install-shim.mjs  optional: run Zed's built-in agents through the proxy
 providers/claude.mjs  Claude Code: Agent SDK get_usage control request
 providers/codex.mjs   Codex: codex app-server account/rateLimits/read
 providers/index.mjs   filename-based provider discovery
