@@ -7,6 +7,9 @@ title.
 Hello, world! · 5h 16% · wk 62%
 ```
 
+<img width="411" height="200" alt="2026-08-20_23-17-11" src="https://github.com/user-attachments/assets/48a78fa0-cb32-4372-ab33-e3ca1de7c57f" />
+
+
 Ships with providers for **Claude Code** and **Codex**, and is modular so other
 ACP agents can be added by dropping in one file — see
 [providers/README.md](providers/README.md).
