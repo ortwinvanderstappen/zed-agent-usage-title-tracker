@@ -16,10 +16,14 @@
 
 import { spawn } from "node:child_process";
 import { loadProvider } from "./providers/index.mjs";
-import { formatWindows, sameWindows, SUFFIX_RE } from "./lib/windows.mjs";
+import { formatWindows, msUntilNextReset, SUFFIX_RE } from "./lib/windows.mjs";
 
 const REFRESH_MS = Number(process.env.ZED_AGENT_USAGE_REFRESH_MS ?? 60_000);
 const MIN_INTERVAL_MS = Number(process.env.ZED_AGENT_USAGE_MIN_INTERVAL_MS ?? 15_000);
+// Labels count down to the next reset, so the title has to be re-rendered as
+// time passes even when the numbers have not moved. Rendering is pure -- it
+// reuses the cached snapshot -- so this tick is far cheaper than a fetch.
+const RENDER_MS = Number(process.env.ZED_AGENT_USAGE_RENDER_MS ?? 30_000);
 const DEBUG = process.env.ZED_AGENT_USAGE_DEBUG === "1";
 
 const log = (msg) => {
@@ -80,6 +84,11 @@ const baseTitles = new Map();
 let usage = null;
 let lastFetch = 0;
 let fetching = false;
+/** Suffix last published, so both the fetch and the render tick share one test
+ *  for "would the display actually change?". */
+let lastSuffix = null;
+/** Timer that re-reads usage just after a window rolls over. */
+let resetTimer = null;
 
 function suffix() {
   return usage?.available ? formatWindows(usage.windows) : "";
@@ -114,6 +123,26 @@ function republishTitles() {
   }
 }
 
+/** Publish titles only when the rendered suffix has actually changed -- whether
+ *  because the numbers moved or because the countdown ticked. */
+function renderTitles() {
+  const next = suffix();
+  if (next === lastSuffix) return;
+  lastSuffix = next;
+  republishTitles();
+}
+
+/** A window that has just rolled over leaves a stale percentage cached, so
+ *  schedule one fetch for shortly after the soonest reset. */
+function scheduleResetRefresh() {
+  clearTimeout(resetTimer);
+  const due = msUntilNextReset(usage?.windows);
+  if (due == null) return;
+  // A couple of seconds of slack, and never a busy loop on a past timestamp.
+  resetTimer = setTimeout(() => void refreshUsage({ force: true }), Math.max(due, 0) + 2_000);
+  resetTimer.unref?.();
+}
+
 async function refreshUsage({ force = false } = {}) {
   if (fetching) return;
   if (!force && Date.now() - lastFetch < MIN_INTERVAL_MS) return;
@@ -121,10 +150,10 @@ async function refreshUsage({ force = false } = {}) {
   try {
     const next = await provider.fetchUsage();
     lastFetch = Date.now();
-    const changed = !usage || !sameWindows(next.windows, usage.windows);
     usage = next;
     log(`usage:${formatWindows(next.windows) || " (none)"} available=${next.available}`);
-    if (changed) republishTitles();
+    renderTitles();
+    scheduleResetRefresh();
   } catch (err) {
     log(`usage fetch failed: ${err?.message || err}`);
   } finally {
@@ -191,3 +220,5 @@ child.stdout.on("end", () => {
 
 void refreshUsage({ force: true });
 setInterval(() => void refreshUsage(), REFRESH_MS).unref();
+// Re-render between fetches so the countdown stays honest without a turn.
+setInterval(renderTitles, RENDER_MS).unref();

@@ -1,10 +1,10 @@
 # zed-agent-usage-title-tracker
 
 Shows your agent plan usage — rolling window and weekly — in the Zed agent thread
-title.
+title, labelled by how long until each window resets.
 
 ```
-Hello, world! · 5h 16% · wk 62%
+Hello, world! · 1h 16% · wk 62%
 ```
 
 <img width="411" height="200" alt="2026-08-20_23-17-11" src="https://github.com/user-attachments/assets/48a78fa0-cb32-4372-ab33-e3ca1de7c57f" />
@@ -163,8 +163,10 @@ window with `secondary: null`, so you may see just `wk 0%`. Labels are derived
 from the duration, so a plan that reports a 5-hour window gets `5h` with no code
 change.
 
-Refreshed at startup, on every `usage_update` from the adapter (turn end,
-rate-limited to one fetch per 15s), and every 60s.
+Fetched at startup, on every `usage_update` from the adapter (turn end,
+rate-limited to one fetch per 15s), every 60s, and once just after a window's
+reset falls due. Between fetches the title is re-rendered from the cached
+snapshot every 30s so the countdown stays current without spawning anything.
 
 ### What does *not* work, and why
 
@@ -191,6 +193,11 @@ rate-limited to one fetch per 15s), and every 60s.
 - Until the adapter reports a title (both adapters generate one — Claude at turn
   end, Codex from `thread/name/updated` or the first user message), the thread
   title is just the percentages; the real title is prepended once it arrives.
+- Labels count down to the window reset rather than naming its length, so a
+  5-hour window resetting in 29 minutes reads `29m 26%`, and in 1h20m reads `1h 26%`
+  (floored, so it never promises a reset early). The weekly window reads `wk` until
+  its final 24 hours, then counts down too. Windows with no known reset time fall
+  back to their static label.
 - Re-decoration strips a previously appended suffix, so titles never stack.
 - For Claude, weekly prefers the all-models window, falling back to the highest
   per-model window so the figure shown is always the binding one.
@@ -205,6 +212,7 @@ rate-limited to one fetch per 15s), and every 60s.
 | `ZED_AGENT_USAGE_PROVIDER` | `claude` | Provider id, if `--provider` is not passed |
 | `ZED_AGENT_USAGE_PROVIDER_PATH` | – | Absolute path to an out-of-tree provider |
 | `ZED_AGENT_USAGE_REFRESH_MS` | `60000` | Background refresh interval |
+| `ZED_AGENT_USAGE_RENDER_MS` | `30000` | How often the countdown label is re-rendered |
 | `ZED_AGENT_USAGE_MIN_INTERVAL_MS` | `15000` | Minimum gap between fetches |
 | `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (Zed: `dev: open acp logs`) |
 | `ZED_AGENT_USAGE_NODE` | auto | Node binary the launcher runs the proxy with |

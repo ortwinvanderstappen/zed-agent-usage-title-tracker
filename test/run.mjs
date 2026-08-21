@@ -3,9 +3,12 @@
  *
  *    node test/run.mjs               spawn proxy.mjs directly
  *    node test/run.mjs --launcher    spawn it the way Zed does, via bin/
+ *    node test/run.mjs --countdown   stub reports reset times, so labels count down
  *
  *  The launcher pass matters because that is what settings.json points at, and
- *  it is a different file per platform. */
+ *  it is a different file per platform. The countdown pass covers the labels a
+ *  real provider produces; without it the stub reports no reset times and the
+ *  static fallback labels are what get asserted. */
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,12 +16,15 @@ import { launchArgv } from "./launch.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
+const countdown = process.argv.includes("--countdown");
 const [command, commandArgs] = launchArgv({
   viaLauncher: process.argv.includes("--launcher"),
 });
-console.log(`running: ${command} ${commandArgs.join(" ")}`);
+console.log(`running: ${command} ${commandArgs.join(" ")}${countdown ? " (countdown)" : ""}`);
 
-const EXPECTED = "Fix auth bug · 5h 42% · wk 7%";
+// 94 minutes out floors to "1h"; the weekly window stays above the 24h
+// threshold and keeps its static label.
+const EXPECTED = countdown ? "Fix auth bug · 1h 42% · wk 7%" : "Fix auth bug · 5h 42% · wk 7%";
 
 const child = spawn(command, commandArgs, {
   stdio: ["pipe", "pipe", "inherit"],
@@ -26,6 +32,7 @@ const child = spawn(command, commandArgs, {
     ...process.env,
     ZED_AGENT_USAGE_PROVIDER_PATH: path.join(here, "fake-provider.mjs"),
     ZED_AGENT_USAGE_DEBUG: "1",
+    ...(countdown ? { ZED_AGENT_USAGE_FAKE_COUNTDOWN: "1" } : {}),
   },
 });
 
