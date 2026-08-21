@@ -36,6 +36,8 @@ function idlePrompt() {
 export default {
   id: "claude",
   displayName: "Claude",
+  // Short value labels ("Xhigh"), so the usage suffix fits without truncating.
+  selectorId: "effort",
 
   resolveAdapter() {
     return resolveNodeAdapter({

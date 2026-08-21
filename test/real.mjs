@@ -24,7 +24,7 @@ const child = spawn(command, commandArgs, {
 });
 
 const send = (m) => child.stdin.write(`${JSON.stringify(m)}\n`);
-const titles = [];
+const labels = [];
 let sessionId = null;
 let buffer = "";
 
@@ -45,10 +45,20 @@ child.stdout.on("data", (chunk) => {
     }
 
     const update = msg?.params?.update;
-    if (update?.sessionUpdate === "session_info_update" && "title" in update) {
-      titles.push(update.title);
-      console.log(`<- TITLE ${JSON.stringify(update.title)}`);
-    } else if (msg.id === 1) {
+    // The decorated selector arrives either on the session/new response or on a
+    // later config_option_update, depending on whether the first usage fetch
+    // has landed yet -- record both.
+    const configOptions = msg.result?.configOptions ?? update?.configOptions;
+    if (configOptions) {
+      for (const opt of configOptions) {
+        const cur = (opt.options ?? []).find((v) => v.value === opt.currentValue);
+        if (cur?.name && /\d+%/.test(cur.name)) {
+          labels.push(`${opt.id}: ${cur.name}`);
+          console.log(`<- SELECTOR ${opt.id} = ${JSON.stringify(cur.name)}`);
+        }
+      }
+    }
+    if (msg.id === 1) {
       console.log(`<- initialize ok: ${JSON.stringify(msg.result ?? msg.error).slice(0, 160)}`);
       send({
         jsonrpc: "2.0",
@@ -96,8 +106,11 @@ send({
 
 setTimeout(() => {
   child.kill();
-  console.log(`\ntitles: ${JSON.stringify(titles)}`);
-  const decorated = titles.filter((t) => /[0-9a-z]{1,5} \d+%/.test(t ?? ""));
-  console.log(decorated.length ? `PASS: ${decorated.at(-1)}` : "no decorated title (see notes)");
-  process.exit(decorated.length || !prompt ? 0 : 1);
+  console.log(`\ndecorated selectors: ${JSON.stringify(labels)}`);
+  if (!labels.length) {
+    console.error("FAIL: no selector carried the usage");
+    process.exit(1);
+  }
+  console.log(`PASS: ${labels.at(-1)}`);
+  process.exit(0);
 }, prompt ? 90_000 : 25_000);

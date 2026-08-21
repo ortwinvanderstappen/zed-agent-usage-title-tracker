@@ -9,8 +9,6 @@ import {
   labelForMinutes,
   msUntil,
   msUntilNextReset,
-  sameWindows,
-  SUFFIX_RE,
   windowLabel,
 } from "../lib/windows.mjs";
 
@@ -64,6 +62,14 @@ const usage = [
 ];
 assert.equal(formatWindows(usage, { now: NOW }), " · 1h 26% · wk 7%", "the requested format");
 
+// The same snapshot renders differently as its reset approaches: this is why the
+// proxy re-renders on a timer rather than only when a fetch returns new numbers.
+assert.equal(
+  formatWindows(usage, { now: NOW + 40 * 60_000 }),
+  " · 54m 26% · wk 7%",
+  "unchanged numbers, moved clock, different label",
+);
+
 assert.equal(
   formatWindows([{ label: "5h", usedPercent: 26, resetsAt: inMinutes(29) }], { now: NOW }),
   " · 29m 26%",
@@ -79,33 +85,6 @@ assert.equal(
   formatWindows([{ label: "5h", usedPercent: null, resetsAt: null }], { now: NOW }),
   "",
   "a window without a percentage is skipped",
-);
-
-// --- the suffix must be strippable, or titles would stack -----------------
-for (const suffix of [
-  formatWindows(usage, { now: NOW }),
-  formatWindows([{ label: "5h", usedPercent: 26, resetsAt: inMinutes(29) }], { now: NOW }),
-  " · 6d 7%",
-  " · 0m 99% · wk 7%",
-]) {
-  const title = `Fix auth bug${suffix}`;
-  assert.match(title, SUFFIX_RE, `SUFFIX_RE should match ${JSON.stringify(suffix)}`);
-  assert.equal(title.replace(SUFFIX_RE, ""), "Fix auth bug", "stripping restores the base");
-}
-
-// --- sameWindows compares the rendered result, at one instant --------------
-assert.ok(sameWindows(usage, usage, { now: NOW }), "identical snapshots");
-assert.ok(
-  !sameWindows(usage, [{ ...usage[0], usedPercent: 27 }, usage[1]], { now: NOW }),
-  "a percentage change shows up",
-);
-// The same snapshot renders differently as its reset approaches: this is why the
-// proxy re-renders on a timer rather than only when a fetch returns new numbers.
-assert.equal(formatWindows(usage, { now: NOW }), " · 1h 26% · wk 7%");
-assert.equal(
-  formatWindows(usage, { now: NOW + 40 * 60_000 }),
-  " · 54m 26% · wk 7%",
-  "unchanged numbers, moved clock, different label",
 );
 
 // --- msUntilNextReset drives the post-reset refetch ------------------------

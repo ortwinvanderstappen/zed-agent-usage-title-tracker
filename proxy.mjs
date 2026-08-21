@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /**
- * ACP stdio proxy that appends plan usage to the Zed thread title.
+ * ACP stdio proxy that shows plan usage in Zed's agent panel.
  *
  *   Zed  <--stdio-->  proxy.mjs  <--stdio-->  <agent>-acp adapter
  *
- * Zed renders `session_info_update.title`, so the percentages are appended
- * there: "Fix auth bug · 5h 16% · wk 62%". Everything else is relayed verbatim.
+ * The usage is appended to the label of one config selector at the bottom of the
+ * thread -- "Xhigh · 1h 26% · wk 7%". `SessionConfigSelectOption.name` is
+ * display-only (`value` is what `session/set_config_option` references), so
+ * rewriting it round-trips safely. Everything else is relayed verbatim.
  *
- * Which agent to wrap, and where its numbers come from, is decided by a provider
- * (see providers/README.md):
+ * Which agent to wrap, where its numbers come from, and which selector carries
+ * them is decided by a provider (see providers/README.md):
  *
  *   node proxy.mjs                    # default provider: claude
  *   node proxy.mjs --provider codex
@@ -16,11 +18,11 @@
 
 import { spawn } from "node:child_process";
 import { loadProvider } from "./providers/index.mjs";
-import { formatWindows, msUntilNextReset, SUFFIX_RE } from "./lib/windows.mjs";
+import { formatWindows, msUntilNextReset } from "./lib/windows.mjs";
 
 const REFRESH_MS = Number(process.env.ZED_AGENT_USAGE_REFRESH_MS ?? 60_000);
 const MIN_INTERVAL_MS = Number(process.env.ZED_AGENT_USAGE_MIN_INTERVAL_MS ?? 15_000);
-// Labels count down to the next reset, so the title has to be re-rendered as
+// Labels count down to the next reset, so the selector has to be re-rendered as
 // time passes even when the numbers have not moved. Rendering is pure -- it
 // reuses the cached snapshot -- so this tick is far cheaper than a fetch.
 const RENDER_MS = Number(process.env.ZED_AGENT_USAGE_RENDER_MS ?? 30_000);
@@ -39,7 +41,13 @@ function providerId() {
 }
 
 const provider = await loadProvider(providerId());
-log(`provider: ${provider.id}`);
+
+/** Which config selector carries the usage. Each provider names its own, since
+ *  the ids differ per agent ("effort" vs "reasoning_effort"); both are chosen
+ *  for having short value labels, so the suffix fits where a long one like
+ *  "Opus (1M context)" would be truncated by Zed. */
+const SELECTOR_ID = process.env.ZED_AGENT_USAGE_SELECTOR ?? provider.selectorId ?? "effort";
+log(`provider: ${provider.id} selector: ${SELECTOR_ID}`);
 
 // ---------------------------------------------------------------- adapter
 
@@ -78,30 +86,37 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 
 // ---------------------------------------------------------------- state
 
-/** sessionId -> base title as reported by the adapter (may be null). */
-const baseTitles = new Map();
 /** Latest snapshot from the provider, or null until the first success. */
 let usage = null;
 let lastFetch = 0;
 let fetching = false;
-/** Suffix last published, so both the fetch and the render tick share one test
- *  for "would the display actually change?". */
+/** Suffix last published, so the fetch and the render tick share one test for
+ *  "would the display actually change?". */
 let lastSuffix = null;
 /** Timer that re-reads usage just after a window rolls over. */
 let resetTimer = null;
+/** sessionId -> the adapter's own config options, undecorated, so every render
+ *  starts from a clean set rather than appending to an appended label. */
+const rawConfigOptions = new Map();
 
 function suffix() {
   return usage?.available ? formatWindows(usage.windows) : "";
 }
 
-/** Compose the title Zed should display for a session. */
-function decorate(sessionId) {
-  const base = (baseTitles.get(sessionId) ?? "").replace(SUFFIX_RE, "");
+/** Append the usage to the selected value of the provider's chosen selector.
+ *  Only that one value is touched; every other option is passed through as-is. */
+function decorateConfigOptions(configOptions) {
   const tail = suffix();
-  if (!tail) return base || null;
-  // Before the adapter reports a title, show the percentages alone; the next
-  // session_info_update replaces this with "<real title> · <percentages>".
-  return base ? `${base}${tail}` : tail.slice(3);
+  if (!tail || !Array.isArray(configOptions)) return configOptions;
+  return configOptions.map((opt) => {
+    if (opt?.id !== SELECTOR_ID || !Array.isArray(opt.options)) return opt;
+    return {
+      ...opt,
+      options: opt.options.map((v) =>
+        v?.value === opt.currentValue ? { ...v, name: `${v.name}${tail}` } : v,
+      ),
+    };
+  });
 }
 
 // ---------------------------------------------------------------- framing
@@ -110,26 +125,33 @@ function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-/** Emit our own session_info_update so titles refresh between turns. */
-function republishTitles() {
-  for (const sessionId of baseTitles.keys()) {
-    const title = decorate(sessionId);
-    if (title == null) continue;
+/** Re-emit config options so the selector label refreshes. Zed only re-reads the
+ *  label when the set is republished, which is also what covers a cold start:
+ *  `session/new` can arrive before the first usage fetch lands, leaving that
+ *  first render undecorated. */
+function republishConfigOptions() {
+  for (const [sessionId, configOptions] of rawConfigOptions) {
     send({
       jsonrpc: "2.0",
       method: "session/update",
-      params: { sessionId, update: { sessionUpdate: "session_info_update", title } },
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: "config_option_update",
+          configOptions: decorateConfigOptions(configOptions),
+        },
+      },
     });
   }
 }
 
-/** Publish titles only when the rendered suffix has actually changed -- whether
- *  because the numbers moved or because the countdown ticked. */
-function renderTitles() {
+/** Publish only when the rendered suffix has actually changed -- whether because
+ *  the numbers moved or because the countdown ticked. */
+function renderSelectors() {
   const next = suffix();
   if (next === lastSuffix) return;
   lastSuffix = next;
-  republishTitles();
+  republishConfigOptions();
 }
 
 /** A window that has just rolled over leaves a stale percentage cached, so
@@ -152,7 +174,7 @@ async function refreshUsage({ force = false } = {}) {
     lastFetch = Date.now();
     usage = next;
     log(`usage:${formatWindows(next.windows) || " (none)"} available=${next.available}`);
-    renderTitles();
+    renderSelectors();
     scheduleResetRefresh();
   } catch (err) {
     log(`usage fetch failed: ${err?.message || err}`);
@@ -161,25 +183,38 @@ async function refreshUsage({ force = false } = {}) {
   }
 }
 
-/** Inspect one agent -> client message, rewriting titles in place. */
+/** Inspect one agent -> client message, decorating the selector in place. */
 function transform(message) {
+  // Config options arrive on the session/new response, not as a notification,
+  // so responses have to be inspected too.
+  if (message?.result?.configOptions) {
+    const { sessionId, configOptions } = message.result;
+    if (sessionId) rawConfigOptions.set(sessionId, configOptions);
+    // If the startup fetch failed or has not landed, try again now so the first
+    // republish arrives promptly rather than at the next interval.
+    if (!usage) void refreshUsage({ force: true });
+    return {
+      ...message,
+      result: { ...message.result, configOptions: decorateConfigOptions(configOptions) },
+    };
+  }
+
   if (message?.method !== "session/update") return message;
   const sessionId = message.params?.sessionId;
   const update = message.params?.update;
   if (!sessionId || !update) return message;
 
-  if (update.sessionUpdate === "session_info_update" && "title" in update) {
-    // Record what the adapter thinks the title is, then re-append our suffix.
-    baseTitles.set(sessionId, update.title ?? null);
-    const title = decorate(sessionId);
-    return { ...message, params: { ...message.params, update: { ...update, title } } };
-  }
-
-  if (!baseTitles.has(sessionId)) {
-    // First sighting of this session: register it so refreshes reach it.
-    baseTitles.set(sessionId, null);
-    if (usage) republishTitles();
-    else void refreshUsage({ force: true });
+  // Keep the selector decorated when the adapter republishes the option set --
+  // e.g. after the user switches mode or model.
+  if (update.sessionUpdate === "config_option_update") {
+    rawConfigOptions.set(sessionId, update.configOptions);
+    return {
+      ...message,
+      params: {
+        ...message.params,
+        update: { ...update, configOptions: decorateConfigOptions(update.configOptions) },
+      },
+    };
   }
 
   // Adapters emit usage_update at turn end -- a good moment to re-read the plan.
@@ -221,4 +256,4 @@ child.stdout.on("end", () => {
 void refreshUsage({ force: true });
 setInterval(() => void refreshUsage(), REFRESH_MS).unref();
 // Re-render between fetches so the countdown stays honest without a turn.
-setInterval(renderTitles, RENDER_MS).unref();
+setInterval(renderSelectors, RENDER_MS).unref();

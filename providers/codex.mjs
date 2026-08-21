@@ -61,6 +61,8 @@ function toWindow(raw) {
 export default {
   id: "codex",
   displayName: "Codex",
+  // Codex's equivalent of Claude's "effort" selector, likewise short-labelled.
+  selectorId: "reasoning_effort",
 
   resolveAdapter() {
     return resolveNodeAdapter({

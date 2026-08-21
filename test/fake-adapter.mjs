@@ -20,7 +20,34 @@ process.stdin.on("data", (chunk) => {
 
     if (msg.method === "session/new") {
       const sessionId = "sess_test_1";
-      send({ jsonrpc: "2.0", id: msg.id, result: { sessionId } });
+      // Both real adapters return config options here; "effort" is the one the
+      // stub provider nominates, "model" is a control that must stay untouched.
+      send({
+        jsonrpc: "2.0",
+        id: msg.id,
+        result: {
+          sessionId,
+          configOptions: [
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              currentValue: "sonnet",
+              options: [{ value: "sonnet", name: "Sonnet" }],
+            },
+            {
+              id: "effort",
+              name: "Effort",
+              type: "select",
+              currentValue: "xhigh",
+              options: [
+                { value: "high", name: "High" },
+                { value: "xhigh", name: "Xhigh" },
+              ],
+            },
+          ],
+        },
+      });
 
       // A normal turn: some output, a usage_update, then the title at turn end.
       send({

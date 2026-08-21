@@ -11,6 +11,7 @@ import { resolveNode } from "../lib/resolve.mjs";
 export default {
   id: "myagent",            // must match the filename
   displayName: "My Agent",
+  selectorId: "effort",     // config selector whose label carries the usage
 
   /** The ACP adapter to spawn and relay. */
   resolveAdapter() {
@@ -45,6 +46,7 @@ node test/real.mjs myagent      # handshake against the real adapter
 | --- | --- |
 | `id` | Must equal the filename minus `.mjs`; `[a-z0-9-]` only |
 | `displayName` | Used in CLI output |
+| `selectorId` | Config selector whose label carries the usage; prefer short value labels |
 | `resolveAdapter()` | `{command, args}`, absolute `command`; `resolveNode()` gives you one |
 | `fetchUsage()` | Resolves to `{available, planType, windows}` |
 | `windows[]` | `{label, usedPercent, resetsAt}`; `label` is short (`5h`, `wk`) |
@@ -67,6 +69,10 @@ API-key billing; the proxy then leaves titles untouched.
 - **Derive labels from data where possible.** `lib/windows.mjs` exports
   `labelForMinutes()`, which the Codex provider uses to turn `windowDurationMins`
   into `5h` / `wk`, so a new window length needs no code change.
+- **Pick a short selector.** The usage is appended to the selected value's label
+  in the agent panel, which is narrow. `effort` ("Xhigh") leaves room where
+  `model` ("Opus (1M context)") gets truncated. Find the ids by driving the
+  adapter's `session/new` and reading the `configOptions` it returns.
 - **Reuse the resolvers.** `lib/resolve.mjs` exports `zedPaths()`,
   `firstExisting()`, `resolveNode()` and `resolveNodeAdapter()` for locating
   binaries Zed already installed, which keeps versions matched to Zed's and

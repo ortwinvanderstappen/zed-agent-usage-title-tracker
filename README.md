@@ -1,10 +1,13 @@
 # zed-agent-usage-title-tracker
 
-Shows your agent plan usage — rolling window and weekly — in the Zed agent thread
-title, labelled by how long until each window resets.
+Shows your agent plan usage — rolling window and weekly — in Zed's agent panel,
+labelled by how long until each window resets.
+
+It rides along on one of the config selectors at the bottom of the thread, next
+to the message editor:
 
 ```
-Hello, world! · 1h 16% · wk 62%
+Xhigh · 1h 16% · wk 62%
 ```
 
 <img width="411" height="200" alt="2026-08-20_23-17-11" src="https://github.com/user-attachments/assets/48a78fa0-cb32-4372-ab33-e3ca1de7c57f" />
@@ -27,10 +30,15 @@ Instead this is a **stdio proxy** that sits in the ACP connection:
 Zed  <--stdio-->  proxy.mjs  <--stdio-->  <agent>-acp adapter
 ```
 
-Zed renders `session_info_update.title`, so the proxy appends the percentages to
-whatever title the adapter reports and relays everything else untouched. The
-decorated title shows up wherever Zed renders a thread title, including the agent
-panel's thread list.
+Zed renders the selected value's label for each config selector, and in ACP that
+label is display-only: `SessionConfigSelectOption.name` is what gets shown, while
+`value` is what `session/set_config_option` refers to. So the proxy appends the
+percentages to that one label and relays everything else untouched — switching
+the selector still works normally.
+
+Each provider nominates which selector to use (`effort` for Claude,
+`reasoning_effort` for Codex), both picked for having short labels so the suffix
+is not truncated.
 
 ## Setup
 
@@ -129,7 +137,7 @@ thread in Zed once first so Zed downloads it, then re-run.
 ## Layout
 
 ```
-proxy.mjs                 generic ACP relay + title injection
+proxy.mjs                 generic ACP relay + selector decoration
 setup.mjs                 CLI: print or write this machine's Zed settings entry
 usage.mjs                 CLI: print a provider's snapshot
 bin/zed-agent-usage       what Zed spawns; finds node at run time (macOS, Linux)
@@ -137,7 +145,7 @@ bin/zed-agent-usage.cmd   the same, for Windows
 providers/claude.mjs      Claude Code: Agent SDK get_usage control request
 providers/codex.mjs       Codex: codex app-server account/rateLimits/read
 providers/index.mjs       filename-based provider discovery
-lib/windows.mjs           window labelling and suffix formatting
+lib/windows.mjs           window labelling and countdown formatting
 lib/resolve.mjs           locating node and the binaries Zed already installed
 lib/jsonc.mjs             comment-preserving settings.json edits
 ```
@@ -165,7 +173,7 @@ change.
 
 Fetched at startup, on every `usage_update` from the adapter (turn end,
 rate-limited to one fetch per 15s), every 60s, and once just after a window's
-reset falls due. Between fetches the title is re-rendered from the cached
+reset falls due. Between fetches the label is re-rendered from the cached
 snapshot every 30s so the countdown stays current without spawning anything.
 
 ### What does *not* work, and why
@@ -190,15 +198,21 @@ snapshot every 30s so the countdown stays current without spawning anything.
 
 ## Behaviour notes
 
-- Until the adapter reports a title (both adapters generate one — Claude at turn
-  end, Codex from `thread/name/updated` or the first user message), the thread
-  title is just the percentages; the real title is prepended once it arrives.
 - Labels count down to the window reset rather than naming its length, so a
   5-hour window resetting in 29 minutes reads `29m 26%`, and in 1h20m reads `1h 26%`
   (floored, so it never promises a reset early). The weekly window reads `wk` until
   its final 24 hours, then counts down too. Windows with no known reset time fall
   back to their static label.
-- Re-decoration strips a previously appended suffix, so titles never stack.
+- Each render rebuilds from the adapter's own option set, so suffixes never
+  stack, and only the selected value of the nominated selector is ever touched.
+- The label appears as soon as the first usage read lands. `session/new` often
+  arrives before it, so the proxy republishes the option set once the numbers are
+  in — and again whenever the countdown ticks, without another fetch.
+- Thread titles are relayed verbatim, so renaming a thread has no effect on the
+  usage readout. (Zed permanently stops accepting agent-provided titles for a
+  renamed thread, which is why the title is not used for this.)
+- Opening the selector's dropdown shows the suffix on the selected row too —
+  Zed renders the same field in both places.
 - For Claude, weekly prefers the all-models window, falling back to the highest
   per-model window so the figure shown is always the binding one.
 - When plan limits don't apply (API key, Bedrock, Vertex), nothing is appended.
@@ -213,6 +227,7 @@ snapshot every 30s so the countdown stays current without spawning anything.
 | `ZED_AGENT_USAGE_PROVIDER_PATH` | – | Absolute path to an out-of-tree provider |
 | `ZED_AGENT_USAGE_REFRESH_MS` | `60000` | Background refresh interval |
 | `ZED_AGENT_USAGE_RENDER_MS` | `30000` | How often the countdown label is re-rendered |
+| `ZED_AGENT_USAGE_SELECTOR` | per provider | Which config selector carries the usage |
 | `ZED_AGENT_USAGE_MIN_INTERVAL_MS` | `15000` | Minimum gap between fetches |
 | `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (Zed: `dev: open acp logs`) |
 | `ZED_AGENT_USAGE_NODE` | auto | Node binary the launcher runs the proxy with |
@@ -223,9 +238,10 @@ snapshot every 30s so the countdown stays current without spawning anything.
 ## Tests
 
 ```sh
-npm test                      # settings edits, then the proxy against a canned
-                              # adapter and stub provider, both directly and
-                              # through the launcher; asserts the exact title
+npm test                      # unit tests, settings edits, then the proxy against
+                              # a canned adapter and stub provider, directly and
+                              # through the launcher; asserts the exact label
+npm run test:unit             # just the countdown labelling unit tests
 npm run test:launcher         # just the launcher pass
 npm run setup                 # print the entry for this machine
 npm run usage                 # print the Claude snapshot
