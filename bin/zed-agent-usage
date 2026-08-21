@@ -1,0 +1,44 @@
+#!/bin/sh
+# Launcher for the "command" field of a Zed custom agent server.
+#
+# Resolves node at run time so settings.json holds no node path: Zed ships its
+# own node under a version-stamped directory, and a GUI-launched Zed does not
+# inherit the shell PATH, so neither an absolute path nor a bare "node" is
+# reliable there. Any arguments are passed through to proxy.mjs, e.g.
+# --provider codex.
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+pick_node() {
+  if [ -n "${ZED_AGENT_USAGE_NODE:-}" ] && [ -x "${ZED_AGENT_USAGE_NODE}" ]; then
+    printf '%s\n' "${ZED_AGENT_USAGE_NODE}"
+    return
+  fi
+
+  # Zed's own node, if it has downloaded one. Globbed rather than word-split so
+  # the space in "Application Support" survives; the last match wins, which is
+  # the highest version when more than one is present.
+  for dir in \
+    "$HOME/Library/Application Support/Zed" \
+    "$HOME/.local/share/zed" \
+    "$HOME/.config/zed"; do
+    found=
+    for candidate in "$dir"/node/node-v*/bin/node; do
+      [ -x "$candidate" ] && found=$candidate
+    done
+    if [ -n "$found" ]; then
+      printf '%s\n' "$found"
+      return
+    fi
+  done
+
+  command -v node 2>/dev/null || true
+}
+
+node_bin=$(pick_node)
+if [ -z "$node_bin" ]; then
+  echo "zed-agent-usage: no node found. Set ZED_AGENT_USAGE_NODE to a node binary." >&2
+  exit 1
+fi
+
+exec "$node_bin" "$here/../proxy.mjs" "$@"

@@ -34,43 +34,74 @@ panel's thread list.
 
 ## Setup
 
-There is nothing to install — the proxy reuses the adapters and binaries Zed
-already downloaded for `claude-acp` / `codex-acp`, so versions stay matched to
-Zed's.
+There is nothing to install — the proxy has no dependencies, and it reuses the
+adapters and binaries Zed already downloaded for `claude-acp` / `codex-acp`, so
+versions stay matched to Zed's. You do not need your own node either: Zed ships
+one, and the launcher finds it.
 
-1. Find your node binary and this repo's path:
+```sh
+node setup.mjs            # print the entry for this machine, and where it goes
+node setup.mjs --write    # add it, backing settings.json up first
+```
 
-   ```sh
-   which node && pwd
-   ```
+`setup.mjs` resolves every path itself, which is the point — they all differ per
+platform. Then pick **Claude + usage** in Zed's agent panel picker; settings are
+picked up without a restart.
 
-2. Add one entry per agent to `~/.config/zed/settings.json`, inside
-   `agent_servers`:
-
-   ```json
-   "agent_servers": {
-     "Claude + usage": {
-       "type": "custom",
-       "command": "/usr/local/bin/node",
-       "args": ["/path/to/zed-agent-usage-title-tracker/proxy.mjs"]
-     },
-     "Codex + usage": {
-       "type": "custom",
-       "command": "/usr/local/bin/node",
-       "args": ["/path/to/zed-agent-usage-title-tracker/proxy.mjs", "--provider", "codex"]
-     }
-   }
-   ```
-
-   `command` must be an **absolute** path — Zed launched from the Finder does not
-   inherit your shell `PATH`, so a bare `"node"` fails to spawn. Omitting
-   `--provider` defaults to `claude`.
-
-3. In Zed's agent panel, open the agent picker and choose **Claude + usage** or
-   **Codex + usage**. Settings are picked up without a restart.
+For Codex, `node setup.mjs --provider codex --write` adds a **Codex + usage**
+entry alongside it.
 
 Existing `claude-acp` / `codex-acp` entries keep working — leave them in place to
 switch back at any time.
+
+### What it writes
+
+macOS and Linux point straight at the launcher:
+
+```json
+"agent_servers": {
+  "Claude + usage": {
+    "type": "custom",
+    "command": "/path/to/zed-agent-usage-title-tracker/bin/zed-agent-usage",
+    "args": []
+  }
+}
+```
+
+Windows goes through `cmd.exe`:
+
+```json
+"agent_servers": {
+  "Claude + usage": {
+    "type": "custom",
+    "command": "C:/Windows/System32/cmd.exe",
+    "args": ["/c", "D:/path/to/zed-agent-usage-title-tracker/bin/zed-agent-usage.cmd"]
+  }
+}
+```
+
+The launcher resolves node at run time instead of settings.json storing a path,
+which sidesteps two problems at once. A GUI-launched Zed does not inherit your
+shell `PATH`, so a bare `"node"` fails to spawn — that is why this used to want
+`which node`. And Zed's own node lives in a version-stamped directory that is
+replaced when Zed upgrades it, so an absolute path written into settings goes
+stale. The launcher checks `ZED_AGENT_USAGE_NODE`, then Zed's node, then `PATH`.
+
+### macOS, Linux and Windows differences
+
+Only three things differ, and `setup.mjs` handles all of them:
+
+| | macOS | Linux | Windows |
+| --- | --- | --- | --- |
+| `settings.json` | `~/.config/zed/settings.json` | same | `%APPDATA%\Zed\settings.json` |
+| Zed support dir | `~/Library/Application Support/Zed` | `~/.local/share/zed` | `%LOCALAPPDATA%\Zed` |
+| launcher | `bin/zed-agent-usage` | same | `bin\zed-agent-usage.cmd`, via `cmd.exe /c` |
+
+Note that on Windows those are two different roots: settings live under
+`%APPDATA%`, while downloaded agents and node live under `%LOCALAPPDATA%`. The
+Windows entry goes through `cmd.exe` because a batch file is not universally
+spawnable — node refuses outright since the CVE-2024-27980 mitigation — whereas
+`cmd.exe` is a real executable at a path that never moves.
 
 ### Or have an agent do it
 
@@ -83,42 +114,32 @@ Set up the zed-agent-usage-title-tracker ACP proxy in my Zed settings.
 The repo is checked out at: <PATH TO THIS REPO>
 
 Please:
-1. Resolve the absolute path to my node binary with `which node`. Zed launched
-   from the Finder does not inherit my shell PATH, so a bare "node" will not work.
-2. Back up ~/.config/zed/settings.json, then add these entries inside the existing
-   "agent_servers" object, creating that object if it is missing. The file is
-   JSONC, not strict JSON — preserve its existing comments, trailing commas and
-   formatting rather than reserialising it:
+1. Run `node setup.mjs` in that directory and show me what it reports. It
+   resolves my platform's paths itself — do not hand-write any of them.
+2. Run `node setup.mjs --write` to add the entry. It backs settings.json up
+   first, preserves the file's comments and trailing commas, and leaves any
+   existing "claude-acp" / "codex-acp" entries alone.
+3. Run `node usage.mjs` and report the percentages it prints.
+4. Tell me to pick "Claude + usage" in Zed's agent panel picker.
 
-     "Claude + usage": {
-       "type": "custom",
-       "command": "<absolute node path>",
-       "args": ["<repo path>/proxy.mjs"]
-     },
-     "Codex + usage": {
-       "type": "custom",
-       "command": "<absolute node path>",
-       "args": ["<repo path>/proxy.mjs", "--provider", "codex"]
-     }
-
-3. Leave any existing "claude-acp" and "codex-acp" entries untouched so I can
-   switch back.
-4. Verify the file still parses (strip // comments and trailing commas before
-   parsing), then run `node <repo path>/usage.mjs` and
-   `node <repo path>/usage.mjs codex` and report the percentages each prints.
-5. Tell me to pick "Claude + usage" or "Codex + usage" in Zed's agent panel picker.
+If step 1 reports the adapter as not installed, tell me to open a `claude-acp`
+thread in Zed once first so Zed downloads it, then re-run.
 ````
 
 ## Layout
 
 ```
-proxy.mjs             generic ACP relay + title injection
-usage.mjs             CLI: print a provider's snapshot
-providers/claude.mjs  Claude Code: Agent SDK get_usage control request
-providers/codex.mjs   Codex: codex app-server account/rateLimits/read
-providers/index.mjs   filename-based provider discovery
-lib/windows.mjs       window labelling and suffix formatting
-lib/resolve.mjs       locating binaries Zed already installed
+proxy.mjs                 generic ACP relay + title injection
+setup.mjs                 CLI: print or write this machine's Zed settings entry
+usage.mjs                 CLI: print a provider's snapshot
+bin/zed-agent-usage       what Zed spawns; finds node at run time (macOS, Linux)
+bin/zed-agent-usage.cmd   the same, for Windows
+providers/claude.mjs      Claude Code: Agent SDK get_usage control request
+providers/codex.mjs       Codex: codex app-server account/rateLimits/read
+providers/index.mjs       filename-based provider discovery
+lib/windows.mjs           window labelling and suffix formatting
+lib/resolve.mjs           locating node and the binaries Zed already installed
+lib/jsonc.mjs             comment-preserving settings.json edits
 ```
 
 ## Where the numbers come from
@@ -133,11 +154,14 @@ name carries an explicit instability warning; if it is renamed upstream,
 `providers/claude.mjs` is the only place to update.
 
 **Codex** — `codex app-server` over newline-delimited JSON-RPC:
-`initialize`, then `account/rateLimits/read`. Codex reports windows by duration
-(`windowDurationMins`) rather than by name, and which windows exist depends on
-the plan: a Plus account may report only the weekly window with `secondary: null`,
-so you may see just `wk 0%`. Labels are derived from the duration, so a plan that
-reports a 5-hour window gets `5h` with no code change.
+`initialize`, then `account/rateLimits/read`. The binary is whichever one Zed
+installed, found by matching `@openai/codex-*/vendor/*/bin` rather than naming a
+target triple, so a new platform or architecture needs no code change. Codex
+reports windows by duration (`windowDurationMins`) rather than by name, and which
+windows exist depends on the plan: a Plus account may report only the weekly
+window with `secondary: null`, so you may see just `wk 0%`. Labels are derived
+from the duration, so a plan that reports a 5-hour window gets `5h` with no code
+change.
 
 Refreshed at startup, on every `usage_update` from the adapter (turn end,
 rate-limited to one fetch per 15s), and every 60s.
@@ -183,6 +207,7 @@ rate-limited to one fetch per 15s), and every 60s.
 | `ZED_AGENT_USAGE_REFRESH_MS` | `60000` | Background refresh interval |
 | `ZED_AGENT_USAGE_MIN_INTERVAL_MS` | `15000` | Minimum gap between fetches |
 | `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (Zed: `dev: open acp logs`) |
+| `ZED_AGENT_USAGE_NODE` | auto | Node binary the launcher runs the proxy with |
 | `ZED_AGENT_USAGE_ADAPTER_COMMAND` / `_ARGS` | auto | Override the wrapped adapter |
 | `CLAUDE_AGENT_SDK` | auto | Override the Claude SDK `sdk.mjs` path |
 | `CODEX_BIN` | auto | Override the `codex` binary path |
@@ -190,12 +215,17 @@ rate-limited to one fetch per 15s), and every 60s.
 ## Tests
 
 ```sh
-npm test                    # proxy + canned adapter + stub provider; asserts the exact title
-npm run usage               # print the Claude snapshot
-npm run usage:codex         # print the Codex snapshot
-npm run test:real           # proxy against the real claude-acp (handshake only)
-npm run test:real:codex     # proxy against the real codex-acp (handshake only)
-PROMPT=hi npm run test:real # also runs one short turn (uses quota)
+npm test                      # settings edits, then the proxy against a canned
+                              # adapter and stub provider, both directly and
+                              # through the launcher; asserts the exact title
+npm run test:launcher         # just the launcher pass
+npm run setup                 # print the entry for this machine
+npm run usage                 # print the Claude snapshot
+npm run usage:codex           # print the Codex snapshot
+npm run test:real             # proxy against the real claude-acp (handshake only)
+npm run test:real:codex       # proxy against the real codex-acp (handshake only)
+node test/real.mjs --launcher # ...started exactly as Zed is configured to
+PROMPT=hi npm run test:real   # also runs one short turn (uses quota)
 ```
 
 ## Upstream

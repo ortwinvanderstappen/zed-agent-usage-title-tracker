@@ -12,20 +12,34 @@
  */
 
 import { spawn } from "node:child_process";
-import { firstExisting, resolveNodeAdapter, zedPaths } from "../lib/resolve.mjs";
+import { firstExisting, isWindows, resolveNodeAdapter, zedGlob } from "../lib/resolve.mjs";
 import { labelForMinutes } from "../lib/windows.mjs";
 
 const ADAPTER_REL =
   "external_agents/registry/npx/codex-acp/node_modules/@agentclientprotocol/codex-acp/dist/index.js";
-const CODEX_BIN_REL =
-  "external_agents/registry/npx/codex-acp/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex";
+// The codex binary ships in a per-platform package (@openai/codex-win32-x64,
+// @openai/codex-darwin-arm64, ...) under a per-target vendor directory. Both
+// names are matched with wildcards so a new platform or architecture needs no
+// code change -- hardcoding one triple made this resolvable on macOS only.
+const CODEX_BIN_GLOB = [
+  "external_agents",
+  "registry",
+  "npx",
+  "codex-acp",
+  "node_modules",
+  "@openai",
+  "codex-*",
+  "vendor",
+  "*",
+  "bin",
+  isWindows ? "codex.exe" : "codex",
+];
 
 function resolveCodexBinary() {
   const found = firstExisting([
     process.env.CODEX_BIN,
-    ...zedPaths(CODEX_BIN_REL),
-    "/usr/local/bin/codex",
-    "/opt/homebrew/bin/codex",
+    ...zedGlob(CODEX_BIN_GLOB),
+    ...(isWindows ? [] : ["/usr/local/bin/codex", "/opt/homebrew/bin/codex"]),
   ]);
   return found ?? "codex"; // fall back to PATH
 }

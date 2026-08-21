@@ -2,18 +2,23 @@
  *
  *   node test/real.mjs                  claude, handshake only -- no model call
  *   node test/real.mjs codex            codex, handshake only
+ *   node test/real.mjs --launcher       start it exactly as Zed is configured to
  *   PROMPT="hi" node test/real.mjs      also sends one short turn (uses quota)
  */
 import { spawn } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { launchArgv } from "./launch.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const proxy = path.join(here, "..", "proxy.mjs");
 const prompt = process.env.PROMPT;
-const provider = process.argv[2] ?? "claude";
+const viaLauncher = process.argv.includes("--launcher");
+const provider = process.argv.slice(2).find((a) => !a.startsWith("-")) ?? "claude";
 
-const child = spawn(process.execPath, [proxy, "--provider", provider], {
+const [command, commandArgs] = launchArgv({
+  viaLauncher,
+  extra: ["--provider", provider],
+});
+console.log(`running: ${command} ${commandArgs.join(" ")}`);
+
+const child = spawn(command, commandArgs, {
   stdio: ["pipe", "pipe", "inherit"],
   env: { ...process.env, ZED_AGENT_USAGE_DEBUG: "1" },
 });

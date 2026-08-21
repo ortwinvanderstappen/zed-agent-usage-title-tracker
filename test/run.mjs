@@ -1,15 +1,26 @@
 /** Drives proxy.mjs like Zed would, against a canned adapter and a stub
- *  provider, and asserts the thread title is decorated exactly. */
+ *  provider, and asserts the thread title is decorated exactly.
+ *
+ *    node test/run.mjs               spawn proxy.mjs directly
+ *    node test/run.mjs --launcher    spawn it the way Zed does, via bin/
+ *
+ *  The launcher pass matters because that is what settings.json points at, and
+ *  it is a different file per platform. */
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { launchArgv } from "./launch.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const proxy = path.join(here, "..", "proxy.mjs");
+
+const [command, commandArgs] = launchArgv({
+  viaLauncher: process.argv.includes("--launcher"),
+});
+console.log(`running: ${command} ${commandArgs.join(" ")}`);
 
 const EXPECTED = "Fix auth bug · 5h 42% · wk 7%";
 
-const child = spawn(process.execPath, [proxy], {
+const child = spawn(command, commandArgs, {
   stdio: ["pipe", "pipe", "inherit"],
   env: {
     ...process.env,
