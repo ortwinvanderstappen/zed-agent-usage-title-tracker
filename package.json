@@ -7,9 +7,11 @@
   "description": "ACP proxy that shows agent plan usage (rolling + weekly) in the Zed agent thread title",
   "type": "module",
   "scripts": {
+    "setup": "node setup.mjs",
     "usage": "node usage.mjs",
     "usage:codex": "node usage.mjs codex",
-    "test": "node test/run.mjs",
+    "test": "node test/settings.mjs && node test/run.mjs && node test/run.mjs --launcher",
+    "test:launcher": "node test/run.mjs --launcher",
     "test:real": "node test/real.mjs",
     "test:real:codex": "node test/real.mjs codex"
   }

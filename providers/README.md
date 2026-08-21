@@ -6,13 +6,15 @@ it becomes selectable — there is no registry to edit.
 
 ```js
 // providers/myagent.mjs
+import { resolveNode } from "../lib/resolve.mjs";
+
 export default {
   id: "myagent",            // must match the filename
   displayName: "My Agent",
 
   /** The ACP adapter to spawn and relay. */
   resolveAdapter() {
-    return { command: "/usr/local/bin/node", args: ["/path/to/myagent-acp"] };
+    return { command: resolveNode(), args: ["/path/to/myagent-acp"] };
   },
 
   /** Current plan usage. Must not consume quota. */
@@ -43,7 +45,7 @@ node test/real.mjs myagent      # handshake against the real adapter
 | --- | --- |
 | `id` | Must equal the filename minus `.mjs`; `[a-z0-9-]` only |
 | `displayName` | Used in CLI output |
-| `resolveAdapter()` | `{command, args}`. Use an absolute `command`. |
+| `resolveAdapter()` | `{command, args}`, absolute `command`; `resolveNode()` gives you one |
 | `fetchUsage()` | Resolves to `{available, planType, windows}` |
 | `windows[]` | `{label, usedPercent, resetsAt}`; `label` is short (`5h`, `wk`) |
 
@@ -66,8 +68,13 @@ API-key billing; the proxy then leaves titles untouched.
   `labelForMinutes()`, which the Codex provider uses to turn `windowDurationMins`
   into `5h` / `wk`, so a new window length needs no code change.
 - **Reuse the resolvers.** `lib/resolve.mjs` exports `zedPaths()`,
-  `firstExisting()` and `resolveNodeAdapter()` for locating binaries Zed already
-  installed, which keeps versions matched to Zed's and avoids an npm install.
+  `firstExisting()`, `resolveNode()` and `resolveNodeAdapter()` for locating
+  binaries Zed already installed, which keeps versions matched to Zed's and
+  avoids an npm install. It handles the per-platform support directories, so do
+  not build paths from `homedir()` yourself -- on Windows Zed's lives under
+  `%LOCALAPPDATA%`. Where a package or vendor directory name varies by platform,
+  `zedGlob()` takes path segments containing `*` rather than one hardcoded
+  target triple; `providers/codex.mjs` uses it to find the `codex` binary.
 - **Throwing is fine.** `fetchUsage()` failures are logged and retried on the
   next refresh; the relay keeps working regardless.
 
