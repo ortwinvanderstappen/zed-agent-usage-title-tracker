@@ -41,9 +41,16 @@ const off = (v) => ["", "off", "none", "false", "0"].includes((v ?? "").toLowerC
 // `?? "on"` matters: off() counts an empty string as off, and unset must not.
 const SHARING = !off(process.env.ZED_AGENT_USAGE_CACHE ?? "on");
 
-/** After this long without a successful read, say so rather than showing figures
- *  that have quietly stopped moving. */
-const STALE_MS = Number(process.env.ZED_AGENT_USAGE_STALE_MS ?? 300_000);
+/** Consecutive failed reads before the label admits it. Keyed on failure rather
+ *  than age: idling on purpose is not the same as being unable to read, and an
+ *  age-based marker flags every idle window for no reason. Two, so a single
+ *  transient blip stays quiet. */
+const STALE_AFTER_FAILURES = Number(process.env.ZED_AGENT_USAGE_STALE_AFTER ?? 2);
+
+/** No turns for this long means nobody is working: stop the safety net entirely.
+ *  Turn start is a trigger, so it refreshes the moment work resumes, and window
+ *  resets still fire, which bounds how old the figures can get. */
+const IDLE_AFTER_MS = Number(process.env.ZED_AGENT_USAGE_IDLE_AFTER_MS ?? 600_000);
 
 /** Config-option ids to drop from the row. Useful for selectors you have already
  *  pinned in settings.json and do not want to look at. Run with
@@ -127,6 +134,10 @@ let usage = null;
 let fetching = false;
 /** When the current snapshot was read -- by us or by another proxy. */
 let fetchedAt = 0;
+/** Failed reads in a row; resets on any success. */
+let failures = 0;
+/** Last sign of someone actually working in this proxy. */
+let lastTurnAt = Date.now();
 /** Last published label, so fetch and render tick share one "did it change?". */
 let lastSuffix = null;
 /** Timer that re-reads usage just after a window rolls over. */
@@ -143,11 +154,10 @@ function suffix() {
   return usage?.available ? formatWindows(usage.windows) : "";
 }
 
-/** Minutes since the snapshot was read, or null if it is still fresh. */
+/** Minutes since the snapshot was read, or null while reads are healthy. */
 function staleMinutes() {
-  if (!fetchedAt) return null;
-  const age = Date.now() - fetchedAt;
-  return age > STALE_MS ? Math.floor(age / 60_000) : null;
+  if (!fetchedAt || failures < STALE_AFTER_FAILURES) return null;
+  return Math.floor((Date.now() - fetchedAt) / 60_000);
 }
 
 /** The label Zed shows: the windows, a marker when one is running out, and a
@@ -275,7 +285,9 @@ async function refreshUsage({ maxAge = MIN_AGE_MS, reason = "" } = {}) {
       release();
     }
   } catch (err) {
-    log(`usage fetch failed: ${err?.message || err}`);
+    failures += 1;
+    log(`usage fetch failed (${failures} in a row): ${err?.message || err}`);
+    renderSelectors(); // the label may need to admit it now
   } finally {
     fetching = false;
   }
@@ -283,6 +295,7 @@ async function refreshUsage({ maxAge = MIN_AGE_MS, reason = "" } = {}) {
 
 /** Take a snapshot as current, whoever produced it. */
 function adopt(snapshot, note) {
+  failures = 0;
   usage = snapshot.usage;
   fetchedAt = snapshot.fetchedAt;
   log(`usage:${formatWindows(usage.windows) || " (none)"} ${note}`);
@@ -330,7 +343,10 @@ function transform(message) {
   }
 
   // Turn end: the one moment the numbers are guaranteed to have moved.
-  if (update.sessionUpdate === "usage_update") void refreshUsage({ reason: "turn end" });
+  if (update.sessionUpdate === "usage_update") {
+    lastTurnAt = Date.now();
+    void refreshUsage({ reason: "turn end" });
+  }
 
   return message;
 }
@@ -345,7 +361,16 @@ function interceptFromClient(message) {
     pendingSessionIds.set(message.id, message.params.sessionId);
   }
   // Turn start: worth a look before the user commits to a prompt.
-  if (message?.method === "session/prompt") void refreshUsage({ reason: "turn start" });
+  if (message?.method === "session/prompt") {
+    lastTurnAt = Date.now();
+    void refreshUsage({ reason: "turn start" });
+  }
+
+  // An archived or closed thread must stop being re-rendered.
+  if (message?.method === "session/close" || message?.method === "session/delete") {
+    const gone = message.params?.sessionId;
+    if (gone && rawConfigOptions.delete(gone)) log(`forgot session ${gone}`);
+  }
 
   if (message?.method !== "session/set_config_option") return false;
   if (message.params?.configId !== USAGE_OPTION_ID) return false;
@@ -417,7 +442,14 @@ child.stdout.on("end", () => {
 });
 
 void refreshUsage({ reason: "startup" });
-// Safety net only: a no-op unless nothing has triggered for MAX_AGE.
-setInterval(() => void refreshUsage({ maxAge: MAX_AGE_MS, reason: "idle" }), 60_000).unref();
+// Safety net, but only while someone is working. An idle Zed costs nothing.
+// Checking more often than MAX_AGE is pointless; less often would overshoot it.
+setInterval(
+  () => {
+    if (Date.now() - lastTurnAt > IDLE_AFTER_MS) return;
+    void refreshUsage({ maxAge: MAX_AGE_MS, reason: "between turns" });
+  },
+  Math.max(2_000, Math.min(60_000, MAX_AGE_MS)),
+).unref();
 // Re-render between fetches so the countdown stays honest without a turn.
 setInterval(renderSelectors, RENDER_MS).unref();

@@ -8,7 +8,7 @@
  *    node test/run.mjs --countdown   stub reports reset times, so labels count down
  *    node test/run.mjs --marker      threshold lowered, so the warning marker shows
  *    node test/run.mjs --no-marker   ...and MARKER=off suppresses it again
- *    node test/run.mjs --stale       snapshot counts as stale, so the label warns
+ *    node test/run.mjs --stale       reads start failing, so the label warns
  *    node test/run.mjs --hide        a real selector is hidden from the row
  *
  *  The launcher pass matters because that is what settings.json points at, and
@@ -32,7 +32,8 @@ const marker = process.argv.includes("--marker");
 // Same lowered threshold, but the documented off switch set: the marker must not
 // appear. This is the regression test for "how do I turn it off".
 const markerOff = process.argv.includes("--no-marker");
-// A stale-after of 1ms makes the fresh snapshot count as stale immediately.
+// One failed read is enough to flag it, and the stub fails every read after the
+// first -- so the label is expected to pick up its "?" almost immediately.
 const stale = process.argv.includes("--stale");
 // Hides "model", which the canned adapter also reports, leaving "effort".
 const hide = process.argv.includes("--hide");
@@ -66,7 +67,9 @@ const child = spawn(command, commandArgs, {
     ...(countdown ? { ZED_AGENT_USAGE_FAKE_COUNTDOWN: "1" } : {}),
     ...(marker || markerOff ? { ZED_AGENT_USAGE_MARKER_AT: "10" } : {}),
     ...(markerOff ? { ZED_AGENT_USAGE_MARKER: "off" } : {}),
-    ...(stale ? { ZED_AGENT_USAGE_STALE_MS: "1" } : {}),
+    ...(stale
+      ? { ZED_AGENT_USAGE_FAKE_FAIL: "after-first", ZED_AGENT_USAGE_STALE_AFTER: "1" }
+      : {}),
     ...(hide ? { ZED_AGENT_USAGE_HIDE: "model" } : {}),
     // Never share a snapshot with the developer's real proxies during a test.
     ZED_AGENT_USAGE_CACHE: "off",

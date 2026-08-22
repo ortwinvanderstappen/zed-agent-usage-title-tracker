@@ -55,8 +55,12 @@ set an option it has never heard of, so the proxy answers that request itself.
 Usage only moves when a turn runs, so fetches are triggered by turns rather than
 by the clock: session start, turn start, turn end, and just after a window
 resets. `MIN_AGE` is the floor — however many chats fire triggers, a real fetch
-happens at most that often. `MAX_AGE` is the ceiling, so a long-idle window is
-never showing yesterday's figures. In between, the label is re-rendered from
+happens at most that often. `MAX_AGE` is the ceiling while you are working.
+
+Leave Zed idle for ten minutes and it stops refreshing altogether: turn start is
+a trigger, so the figures are re-read the moment you type, and window resets
+still fire. Archived and closed threads are forgotten rather than re-rendered
+forever. The `?` marker means reads are *failing*, not that we chose to idle. In between, the label is re-rendered from
 cache every 30s so the countdown stays current without fetching.
 
 Reopening a thread goes through `session/load`, whose response omits the session
@@ -145,7 +149,8 @@ want in `default_config_options` first.
 | `ZED_AGENT_USAGE_MAX_AGE_MS` | `900000` | Ceiling: refresh anyway if nothing triggered for this long |
 | `ZED_AGENT_USAGE_RENDER_MS` | `30000` | Re-render interval for the countdown |
 | `ZED_AGENT_USAGE_CACHE` | on | `off` stops sharing snapshots between proxies |
-| `ZED_AGENT_USAGE_STALE_MS` | `300000` | Age after which the label shows `?` |
+| `ZED_AGENT_USAGE_STALE_AFTER` | `2` | Failed reads in a row before the label shows `?` |
+| `ZED_AGENT_USAGE_IDLE_AFTER_MS` | `600000` | No turns for this long: stop refreshing |
 | `ZED_AGENT_USAGE_HIDE` | – | Config-option ids to hide from the row |
 | `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (`dev: open acp logs`) |
 | `ZED_AGENT_USAGE_PROVIDER` | `claude` | Provider, if `--provider` is not passed |

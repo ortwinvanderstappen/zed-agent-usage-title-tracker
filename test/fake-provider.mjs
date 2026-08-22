@@ -17,6 +17,7 @@ const countdown = process.env.ZED_AGENT_USAGE_FAKE_COUNTDOWN === "1";
 const rollingSeconds = Number(process.env.ZED_AGENT_USAGE_FAKE_RESET_SECONDS ?? 94 * 60);
 const inSeconds = (s) => new Date(Date.now() + s * 1000).toISOString();
 const inMinutes = (m) => inSeconds(m * 60);
+let calls = 0;
 
 export default {
   id: "fake",
@@ -25,6 +26,13 @@ export default {
     return { command: process.execPath, args: [path.join(here, "fake-adapter.mjs")] };
   },
   async fetchUsage() {
+    // Lets a test drive the failure path that puts "?" on the label. "after-first"
+    // is the interesting one: a snapshot exists, then reads start failing.
+    calls += 1;
+    const fail = process.env.ZED_AGENT_USAGE_FAKE_FAIL;
+    if (fail === "1" || (fail === "after-first" && calls > 1)) {
+      throw new Error("stub provider failing on purpose");
+    }
     return {
       available: true,
       planType: "test",
