@@ -4,6 +4,7 @@
  *  wall clock, the network, or an account. */
 import assert from "node:assert/strict";
 import {
+  clampPercent,
   countdownLabel,
   describeWindows,
   formatWindows,
@@ -98,6 +99,16 @@ assert.equal(
   "no reset time, no 'until'",
 );
 assert.equal(describeWindows([], { now: NOW }), "", "nothing to describe");
+
+// --- clampPercent keeps a bad setting from silently disabling the marker -----
+assert.equal(clampPercent("75", 90), 75, "a plain number");
+assert.equal(clampPercent(75, 90), 75, "already a number");
+assert.equal(clampPercent(undefined, 90), 90, "unset falls back");
+assert.equal(clampPercent("", 90), 90, "empty falls back");
+assert.equal(clampPercent("abc", 90), 90, "garbage falls back, not NaN");
+assert.equal(clampPercent("150", 90), 100, "clamped to 100");
+assert.equal(clampPercent("-5", 90), 0, "clamped to 0");
+assert.equal(clampPercent("0", 90), 0, "zero is a real setting, not missing");
 
 // --- maxUsedPercent decides whether the warning marker shows ---------------
 assert.equal(maxUsedPercent(usage), 26, "the window closest to its cap");

@@ -13,6 +13,7 @@ import { spawn } from "node:child_process";
 import { loadProvider } from "./providers/index.mjs";
 import { readCache, writeCache } from "./lib/cache.mjs";
 import {
+  clampPercent,
   describeWindows,
   formatWindows,
   maxUsedPercent,
@@ -55,7 +56,9 @@ const MARKER = (() => {
   if (raw === undefined) return "🔴";
   return off(raw.trim()) ? "" : raw.trim();
 })();
-const MARKER_AT = Number(process.env.ZED_AGENT_USAGE_MARKER_AT ?? 90);
+/** Percentage above which MARKER appears, 0-100. 0 warns at any usage, 100
+ *  never does. */
+const MARKER_AT = clampPercent(process.env.ZED_AGENT_USAGE_MARKER_AT, 90);
 
 const log = (msg) => {
   if (DEBUG) process.stderr.write(`[agent-usage] ${msg}\n`);
@@ -71,7 +74,7 @@ function providerId() {
 
 const provider = await loadProvider(providerId());
 
-log(`provider: ${provider.id}`);
+log(`provider: ${provider.id}, marker ${MARKER || "off"} above ${MARKER_AT}%`);
 
 /** ACP reserves the `_` prefix for custom use, so this cannot collide with an
  *  option a real adapter grows later. */

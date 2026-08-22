@@ -81,18 +81,26 @@ Below that there is no marker — in a row of plain text, it appearing is the
 signal. An emoji is used because ACP has no colour or severity field; the label
 is a plain string Zed paints with your theme.
 
-To change it, add an `env` block to the agent entry in `settings.json`:
+The threshold is yours to set — any percentage from 0 to 100. Add an `env` block
+to the agent entry in `settings.json`:
 
 ```json
-"env": { "ZED_AGENT_USAGE_MARKER": "off" }
+"env": {
+  "ZED_AGENT_USAGE_MARKER_AT": "75",
+  "ZED_AGENT_USAGE_MARKER": "🔴"
+}
 ```
 
 | Want | Set |
 | --- | --- |
-| No marker, ever | `ZED_AGENT_USAGE_MARKER=off` |
-| A different glyph | `ZED_AGENT_USAGE_MARKER=⚠️` |
 | Warn earlier | `ZED_AGENT_USAGE_MARKER_AT=75` |
-| See it right now | `ZED_AGENT_USAGE_MARKER_AT=1` |
+| See it right now | `ZED_AGENT_USAGE_MARKER_AT=0` |
+| Never | `ZED_AGENT_USAGE_MARKER=off` (or `MARKER_AT=100`) |
+| A different glyph | `ZED_AGENT_USAGE_MARKER=⚠️` |
+
+Out-of-range values are clamped and unparseable ones fall back to 90, so a typo
+cannot quietly switch the warning off. `ZED_AGENT_USAGE_DEBUG=1` logs the
+threshold actually in effect.
 
 Settings are read at startup, so restart the agent after editing.
 
@@ -118,7 +126,7 @@ want in `default_config_options` first.
 | Env var | Default | Purpose |
 | --- | --- | --- |
 | `ZED_AGENT_USAGE_MARKER` | `🔴` | Warning glyph; `off` disables |
-| `ZED_AGENT_USAGE_MARKER_AT` | `90` | Percentage above which it appears |
+| `ZED_AGENT_USAGE_MARKER_AT` | `90` | Percentage (0-100) above which it appears |
 | `ZED_AGENT_USAGE_REFRESH_MS` | `60000` | Fetch interval |
 | `ZED_AGENT_USAGE_RENDER_MS` | `30000` | Re-render interval for the countdown |
 | `ZED_AGENT_USAGE_MIN_INTERVAL_MS` | `15000` | Minimum gap between fetches |
