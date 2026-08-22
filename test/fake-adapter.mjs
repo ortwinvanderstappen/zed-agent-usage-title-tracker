@@ -18,6 +18,14 @@ process.stdin.on("data", (chunk) => {
       continue;
     }
 
+    // Anything the proxy should have swallowed shows up here, which is how the
+    // test asserts that it did not reach the agent.
+    if (msg.method === "session/set_config_option") {
+      send({ jsonrpc: "2.0", method: "test/leaked", params: { configId: msg.params?.configId } });
+      send({ jsonrpc: "2.0", id: msg.id, result: { configOptions: [] } });
+      continue;
+    }
+
     if (msg.method === "session/new") {
       const sessionId = "sess_test_1";
       // Both real adapters return config options here; "effort" is the one the

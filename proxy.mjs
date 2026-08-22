@@ -1,32 +1,39 @@
 #!/usr/bin/env node
 /**
- * ACP stdio proxy that shows plan usage in Zed's agent panel.
+ * ACP stdio proxy: Zed <--> proxy.mjs <--> <agent>-acp adapter.
  *
- *   Zed  <--stdio-->  proxy.mjs  <--stdio-->  <agent>-acp adapter
+ * Appends a read-only usage selector to the session's config options and relays
+ * everything else verbatim. A provider decides which agent to wrap and where the
+ * numbers come from (see providers/README.md).
  *
- * The usage is appended to the label of one config selector at the bottom of the
- * thread -- "Xhigh · 1h 26% · wk 7%". `SessionConfigSelectOption.name` is
- * display-only (`value` is what `session/set_config_option` references), so
- * rewriting it round-trips safely. Everything else is relayed verbatim.
- *
- * Which agent to wrap, where its numbers come from, and which selector carries
- * them is decided by a provider (see providers/README.md):
- *
- *   node proxy.mjs                    # default provider: claude
- *   node proxy.mjs --provider codex
+ *   node proxy.mjs [--provider codex]
  */
 
 import { spawn } from "node:child_process";
 import { loadProvider } from "./providers/index.mjs";
-import { formatWindows, msUntilNextReset } from "./lib/windows.mjs";
+import {
+  describeWindows,
+  formatWindows,
+  maxUsedPercent,
+  msUntilNextReset,
+} from "./lib/windows.mjs";
 
 const REFRESH_MS = Number(process.env.ZED_AGENT_USAGE_REFRESH_MS ?? 60_000);
 const MIN_INTERVAL_MS = Number(process.env.ZED_AGENT_USAGE_MIN_INTERVAL_MS ?? 15_000);
-// Labels count down to the next reset, so the selector has to be re-rendered as
-// time passes even when the numbers have not moved. Rendering is pure -- it
-// reuses the cached snapshot -- so this tick is far cheaper than a fetch.
+// Labels count down, so they need re-rendering as time passes even when the
+// numbers have not moved. Pure and cache-backed, so far cheaper than a fetch.
 const RENDER_MS = Number(process.env.ZED_AGENT_USAGE_RENDER_MS ?? 30_000);
 const DEBUG = process.env.ZED_AGENT_USAGE_DEBUG === "1";
+
+/** Warning glyph shown above MARKER_AT percent. An emoji because ACP has no
+ *  colour or severity field. `off` disables it; any other value replaces it. */
+const MARKER = (() => {
+  const raw = process.env.ZED_AGENT_USAGE_MARKER;
+  if (raw === undefined) return "🔴";
+  const value = raw.trim();
+  return ["", "off", "none", "false", "0"].includes(value.toLowerCase()) ? "" : value;
+})();
+const MARKER_AT = Number(process.env.ZED_AGENT_USAGE_MARKER_AT ?? 90);
 
 const log = (msg) => {
   if (DEBUG) process.stderr.write(`[agent-usage] ${msg}\n`);
@@ -42,12 +49,12 @@ function providerId() {
 
 const provider = await loadProvider(providerId());
 
-/** Which config selector carries the usage. Each provider names its own, since
- *  the ids differ per agent ("effort" vs "reasoning_effort"); both are chosen
- *  for having short value labels, so the suffix fits where a long one like
- *  "Opus (1M context)" would be truncated by Zed. */
-const SELECTOR_ID = process.env.ZED_AGENT_USAGE_SELECTOR ?? provider.selectorId ?? "effort";
-log(`provider: ${provider.id} selector: ${SELECTOR_ID}`);
+log(`provider: ${provider.id}`);
+
+/** ACP reserves the `_` prefix for custom use, so this cannot collide with an
+ *  option a real adapter grows later. */
+const USAGE_OPTION_ID = "_usage";
+const USAGE_VALUE_ID = "current";
 
 // ---------------------------------------------------------------- adapter
 
@@ -77,8 +84,6 @@ child.on("error", (err) => {
 });
 child.on("exit", (code, signal) => process.exit(signal ? 1 : (code ?? 0)));
 
-// Client -> agent is relayed untouched; nothing we inject travels upstream.
-process.stdin.pipe(child.stdin);
 process.stdin.on("end", () => child.stdin.end());
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(sig, () => child.kill(sig));
@@ -90,33 +95,49 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 let usage = null;
 let lastFetch = 0;
 let fetching = false;
-/** Suffix last published, so the fetch and the render tick share one test for
- *  "would the display actually change?". */
+/** Last published label, so fetch and render tick share one "did it change?". */
 let lastSuffix = null;
 /** Timer that re-reads usage just after a window rolls over. */
 let resetTimer = null;
-/** sessionId -> the adapter's own config options, undecorated, so every render
- *  starts from a clean set rather than appending to an appended label. */
+/** sessionId -> the adapter's own options, so each render starts from a clean
+ *  set rather than appending to its own output. */
 const rawConfigOptions = new Map();
 
 function suffix() {
   return usage?.available ? formatWindows(usage.windows) : "";
 }
 
-/** Append the usage to the selected value of the provider's chosen selector.
- *  Only that one value is touched; every other option is passed through as-is. */
-function decorateConfigOptions(configOptions) {
+/** The label Zed shows: the windows, plus a marker when one is running out. */
+function usageLabel() {
   const tail = suffix();
-  if (!tail || !Array.isArray(configOptions)) return configOptions;
-  return configOptions.map((opt) => {
-    if (opt?.id !== SELECTOR_ID || !Array.isArray(opt.options)) return opt;
-    return {
-      ...opt,
-      options: opt.options.map((v) =>
-        v?.value === opt.currentValue ? { ...v, name: `${v.name}${tail}` } : v,
-      ),
-    };
-  });
+  if (!tail) return "";
+  const label = tail.slice(3); // drop the leading " · "
+  const worst = maxUsedPercent(usage?.windows);
+  const warn = MARKER && worst != null && worst > MARKER_AT;
+  return warn ? `${MARKER} ${label}` : label;
+}
+
+/** Our selector. Single-value so it reads as a label, and no `category` so Zed
+ *  does not treat it as a model or mode picker. */
+function usageOption() {
+  const label = usageLabel();
+  if (!label) return null;
+  const detail = describeWindows(usage?.windows);
+  return {
+    id: USAGE_OPTION_ID,
+    name: "Usage",
+    description: detail || "Plan usage",
+    type: "select",
+    currentValue: USAGE_VALUE_ID,
+    options: [{ value: USAGE_VALUE_ID, name: label, description: detail || undefined }],
+  };
+}
+
+/** Append-only: every real option passes through untouched. */
+function withUsageOption(configOptions) {
+  if (!Array.isArray(configOptions)) return configOptions;
+  const mine = usageOption();
+  return mine ? [...configOptions, mine] : configOptions;
 }
 
 // ---------------------------------------------------------------- framing
@@ -125,10 +146,8 @@ function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-/** Re-emit config options so the selector label refreshes. Zed only re-reads the
- *  label when the set is republished, which is also what covers a cold start:
- *  `session/new` can arrive before the first usage fetch lands, leaving that
- *  first render undecorated. */
+/** Zed only re-reads the label when the set is republished. This also covers a
+ *  cold start, where session/new beats the first fetch. */
 function republishConfigOptions() {
   for (const [sessionId, configOptions] of rawConfigOptions) {
     send({
@@ -138,29 +157,28 @@ function republishConfigOptions() {
         sessionId,
         update: {
           sessionUpdate: "config_option_update",
-          configOptions: decorateConfigOptions(configOptions),
+          configOptions: withUsageOption(configOptions),
         },
       },
     });
   }
 }
 
-/** Publish only when the rendered suffix has actually changed -- whether because
- *  the numbers moved or because the countdown ticked. */
+/** Publish only when the rendered label actually changed. */
 function renderSelectors() {
-  const next = suffix();
+  const next = usageLabel();
   if (next === lastSuffix) return;
   lastSuffix = next;
   republishConfigOptions();
 }
 
-/** A window that has just rolled over leaves a stale percentage cached, so
- *  schedule one fetch for shortly after the soonest reset. */
+/** A rolled-over window leaves a stale percentage cached, so re-read just after
+ *  the soonest reset. */
 function scheduleResetRefresh() {
   clearTimeout(resetTimer);
   const due = msUntilNextReset(usage?.windows);
   if (due == null) return;
-  // A couple of seconds of slack, and never a busy loop on a past timestamp.
+  // Slack, and never a busy loop on a past timestamp.
   resetTimer = setTimeout(() => void refreshUsage({ force: true }), Math.max(due, 0) + 2_000);
   resetTimer.unref?.();
 }
@@ -185,17 +203,15 @@ async function refreshUsage({ force = false } = {}) {
 
 /** Inspect one agent -> client message, decorating the selector in place. */
 function transform(message) {
-  // Config options arrive on the session/new response, not as a notification,
-  // so responses have to be inspected too.
+  // Config options arrive on the session/new response, not a notification.
   if (message?.result?.configOptions) {
     const { sessionId, configOptions } = message.result;
     if (sessionId) rawConfigOptions.set(sessionId, configOptions);
-    // If the startup fetch failed or has not landed, try again now so the first
-    // republish arrives promptly rather than at the next interval.
+    // Startup fetch failed or has not landed: retry so the label arrives now.
     if (!usage) void refreshUsage({ force: true });
     return {
       ...message,
-      result: { ...message.result, configOptions: decorateConfigOptions(configOptions) },
+      result: { ...message.result, configOptions: withUsageOption(configOptions) },
     };
   }
 
@@ -204,26 +220,69 @@ function transform(message) {
   const update = message.params?.update;
   if (!sessionId || !update) return message;
 
-  // Keep the selector decorated when the adapter republishes the option set --
-  // e.g. after the user switches mode or model.
+  // Re-inject when the adapter republishes its set, e.g. after a mode switch.
   if (update.sessionUpdate === "config_option_update") {
     rawConfigOptions.set(sessionId, update.configOptions);
     return {
       ...message,
       params: {
         ...message.params,
-        update: { ...update, configOptions: decorateConfigOptions(update.configOptions) },
+        update: { ...update, configOptions: withUsageOption(update.configOptions) },
       },
     };
   }
 
-  // Adapters emit usage_update at turn end -- a good moment to re-read the plan.
+  // Adapters emit usage_update at turn end: a good moment to re-read.
   if (update.sessionUpdate === "usage_update") void refreshUsage();
 
   return message;
 }
 
-// ---------------------------------------------------------------- relay
+// ------------------------------------------------- relay: client -> agent
+
+/** The adapter has never heard of our id, so it would reject the set-request
+ *  Zed sends on click. Answer it here, with the full set the schema requires. */
+function interceptFromClient(message) {
+  if (message?.method !== "session/set_config_option") return false;
+  if (message.params?.configId !== USAGE_OPTION_ID) return false;
+  const sessionId = message.params?.sessionId;
+  log(`answering set_config_option for ${USAGE_OPTION_ID} (session ${sessionId})`);
+  if (message.id !== undefined) {
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: { configOptions: withUsageOption(rawConfigOptions.get(sessionId) ?? []) },
+    });
+  }
+  return true;
+}
+
+let upstream = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  upstream += chunk;
+  let index;
+  while ((index = upstream.indexOf("\n")) !== -1) {
+    const line = upstream.slice(0, index);
+    upstream = upstream.slice(index + 1);
+    if (!line.trim()) continue;
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      child.stdin.write(`${line}\n`); // not JSON: pass through untouched
+      continue;
+    }
+    try {
+      if (interceptFromClient(message)) continue;
+    } catch (err) {
+      log(`intercept failed, forwarding: ${err?.message || err}`);
+    }
+    child.stdin.write(`${line}\n`);
+  }
+});
+
+// ------------------------------------------------- relay: agent -> client
 
 let buffer = "";
 child.stdout.setEncoding("utf8");

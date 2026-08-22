@@ -21,7 +21,6 @@ const inMinutes = (m) => inSeconds(m * 60);
 export default {
   id: "fake",
   displayName: "Fake",
-  selectorId: "effort",
   resolveAdapter() {
     return { command: process.execPath, args: [path.join(here, "fake-adapter.mjs")] };
   },

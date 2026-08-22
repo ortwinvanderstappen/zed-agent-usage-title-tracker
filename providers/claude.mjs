@@ -1,9 +1,6 @@
-/** Claude Code provider.
- *
- *  Usage comes from the Agent SDK's `get_usage` control request -- the same data
- *  `/usage` prints. The SDK subprocess authenticates itself, so no credentials
- *  are handled here, and no model call is made, so no quota is consumed.
- */
+/** Claude Code provider: usage via the Agent SDK's `get_usage` control request,
+ *  the data behind `/usage`. The SDK authenticates itself and no model call is
+ *  made, so no credentials are handled and no quota is used. */
 
 import { firstExisting, resolveNodeAdapter, zedPaths } from "../lib/resolve.mjs";
 
@@ -22,9 +19,8 @@ async function loadSdk() {
   return import(`file://${entry}`);
 }
 
-/** A prompt stream that stays open without ever sending a message: control
- *  requests need streaming input mode, and staying silent keeps the session idle
- *  so no turn is ever started. */
+/** Control requests need streaming input mode; staying silent keeps the session
+ *  idle so no turn starts. */
 function idlePrompt() {
   return {
     async *[Symbol.asyncIterator]() {
@@ -36,8 +32,6 @@ function idlePrompt() {
 export default {
   id: "claude",
   displayName: "Claude",
-  // Short value labels ("Xhigh"), so the usage suffix fits without truncating.
-  selectorId: "effort",
 
   resolveAdapter() {
     return resolveNodeAdapter({

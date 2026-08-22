@@ -1,15 +1,9 @@
-/** Codex provider.
+/** Codex provider. codex-acp drops rate-limit data, so ask `codex app-server`
+ *  directly: `account/rateLimits/read`, an account read that uses no quota.
  *
- *  codex-acp drops rate-limit data entirely, so there is nothing to sniff off
- *  the ACP stream. Instead this asks `codex app-server` directly: JSON-RPC
- *  `account/rateLimits/read`, which is an account metadata read and consumes no
- *  quota.
- *
- *  Codex reports windows by duration rather than by name, and which windows
- *  exist depends on the plan -- a Plus account may report only the weekly
- *  window, with `secondary: null`. Labels are therefore derived from
- *  `windowDurationMins`.
- */
+ *  Codex reports windows by duration, and which exist depends on the plan (a
+ *  Plus account may report only the weekly one), so labels come from
+ *  `windowDurationMins`. */
 
 import { spawn } from "node:child_process";
 import { firstExisting, isWindows, resolveNodeAdapter, zedGlob } from "../lib/resolve.mjs";
@@ -17,10 +11,8 @@ import { labelForMinutes } from "../lib/windows.mjs";
 
 const ADAPTER_REL =
   "external_agents/registry/npx/codex-acp/node_modules/@agentclientprotocol/codex-acp/dist/index.js";
-// The codex binary ships in a per-platform package (@openai/codex-win32-x64,
-// @openai/codex-darwin-arm64, ...) under a per-target vendor directory. Both
-// names are matched with wildcards so a new platform or architecture needs no
-// code change -- hardcoding one triple made this resolvable on macOS only.
+// The binary ships in a per-platform package under a per-target vendor dir, so
+// match both with wildcards rather than hardcoding one triple.
 const CODEX_BIN_GLOB = [
   "external_agents",
   "registry",
@@ -61,8 +53,6 @@ function toWindow(raw) {
 export default {
   id: "codex",
   displayName: "Codex",
-  // Codex's equivalent of Claude's "effort" selector, likewise short-labelled.
-  selectorId: "reasoning_effort",
 
   resolveAdapter() {
     return resolveNodeAdapter({

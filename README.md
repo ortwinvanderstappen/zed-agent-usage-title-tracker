@@ -1,269 +1,158 @@
 # zed-agent-usage-title-tracker
 
-Shows your agent plan usage — rolling window and weekly — in Zed's agent panel,
-labelled by how long until each window resets.
+Shows your Claude or Codex plan usage in Zed's agent panel, counting down to each
+window's reset.
 
-It rides along on one of the config selectors at the bottom of the thread, next
-to the message editor:
+It adds one read-only item to the selector row at the bottom of a thread:
 
 ```
-Xhigh · 1h 16% · wk 62%
+Bypass Permissions   Opus (1M context)   Xhigh   Fast mode   4h 11% · wk 15%
 ```
 
 <img width="411" height="200" alt="2026-08-20_23-17-11" src="https://github.com/user-attachments/assets/48a78fa0-cb32-4372-ab33-e3ca1de7c57f" />
 
+`4h 11%` means the 5-hour window is 11% used and resets in 4 hours. Hover for the
+exact reset times.
 
-Ships with providers for **Claude Code** and **Codex**, and is modular so other
-ACP agents can be added by dropping in one file — see
-[providers/README.md](providers/README.md).
+## Setup
 
-## Why this isn't a Zed extension
+Nothing to install — no dependencies, and it reuses the adapters and node that
+Zed already downloaded.
 
-Zed extensions can provide languages, debuggers, themes, icon themes, snippets
-and MCP servers. The `Extension` trait has no UI surface at all — no panel,
-status bar or agent-thread rendering. So a usage badge cannot be drawn by an
-extension.
+```sh
+node setup.mjs            # show what it will write, and where
+node setup.mjs --write    # write it, backing up settings.json first
+```
 
-Instead this is a **stdio proxy** that sits in the ACP connection:
+Then pick **Claude + usage** in Zed's agent panel picker. For Codex too:
+`node setup.mjs --provider codex --write`.
+
+Your existing `claude-acp` / `codex-acp` entries keep working, so you can switch
+back any time.
+
+**Or hand this link to your coding agent and let it do the setup:**
+
+```
+https://raw.githubusercontent.com/ortwinvanderstappen/zed-agent-usage-title-tracker/main/agent-instructions.md
+```
+
+## How it works
+
+Zed extensions have no UI at all, so this is a stdio proxy in the ACP connection:
 
 ```
 Zed  <--stdio-->  proxy.mjs  <--stdio-->  <agent>-acp adapter
 ```
 
-Zed renders the selected value's label for each config selector, and in ACP that
-label is display-only: `SessionConfigSelectOption.name` is what gets shown, while
-`value` is what `session/set_config_option` refers to. So the proxy appends the
-percentages to that one label and relays everything else untouched — switching
-the selector still works normally.
+Zed renders one selector per entry in the session's config-option set, and
+nothing says that set may only hold the adapter's own. So the proxy appends one
+of its own (`_usage`; ACP reserves the `_` prefix for custom use) and passes
+everything else through untouched. Clicking it would make Zed ask the adapter to
+set an option it has never heard of, so the proxy answers that request itself.
 
-Each provider nominates which selector to use (`effort` for Claude,
-`reasoning_effort` for Codex), both picked for having short labels so the suffix
-is not truncated.
-
-## Setup
-
-There is nothing to install — the proxy has no dependencies, and it reuses the
-adapters and binaries Zed already downloaded for `claude-acp` / `codex-acp`, so
-versions stay matched to Zed's. You do not need your own node either: Zed ships
-one, and the launcher finds it.
-
-```sh
-node setup.mjs            # print the entry for this machine, and where it goes
-node setup.mjs --write    # add it, backing settings.json up first
-```
-
-`setup.mjs` resolves every path itself, which is the point — they all differ per
-platform. Then pick **Claude + usage** in Zed's agent panel picker; settings are
-picked up without a restart.
-
-For Codex, `node setup.mjs --provider codex --write` adds a **Codex + usage**
-entry alongside it.
-
-Existing `claude-acp` / `codex-acp` entries keep working — leave them in place to
-switch back at any time.
-
-### What it writes
-
-macOS and Linux point straight at the launcher:
-
-```json
-"agent_servers": {
-  "Claude + usage": {
-    "type": "custom",
-    "command": "/path/to/zed-agent-usage-title-tracker/bin/zed-agent-usage",
-    "args": []
-  }
-}
-```
-
-Windows goes through `cmd.exe`:
-
-```json
-"agent_servers": {
-  "Claude + usage": {
-    "type": "custom",
-    "command": "C:/Windows/System32/cmd.exe",
-    "args": ["/c", "D:/path/to/zed-agent-usage-title-tracker/bin/zed-agent-usage.cmd"]
-  }
-}
-```
-
-The launcher resolves node at run time instead of settings.json storing a path,
-which sidesteps two problems at once. A GUI-launched Zed does not inherit your
-shell `PATH`, so a bare `"node"` fails to spawn — that is why this used to want
-`which node`. And Zed's own node lives in a version-stamped directory that is
-replaced when Zed upgrades it, so an absolute path written into settings goes
-stale. The launcher checks `ZED_AGENT_USAGE_NODE`, then Zed's node, then `PATH`.
-
-### macOS, Linux and Windows differences
-
-Only three things differ, and `setup.mjs` handles all of them:
-
-| | macOS | Linux | Windows |
-| --- | --- | --- | --- |
-| `settings.json` | `~/.config/zed/settings.json` | same | `%APPDATA%\Zed\settings.json` |
-| Zed support dir | `~/Library/Application Support/Zed` | `~/.local/share/zed` | `%LOCALAPPDATA%\Zed` |
-| launcher | `bin/zed-agent-usage` | same | `bin\zed-agent-usage.cmd`, via `cmd.exe /c` |
-
-Note that on Windows those are two different roots: settings live under
-`%APPDATA%`, while downloaded agents and node live under `%LOCALAPPDATA%`. The
-Windows entry goes through `cmd.exe` because a batch file is not universally
-spawnable — node refuses outright since the CVE-2024-27980 mitigation — whereas
-`cmd.exe` is a real executable at a path that never moves.
-
-### Or have an agent do it
-
-Paste this into Claude Code (or the Zed agent panel), replacing the path on the
-first line:
-
-````text
-Set up the zed-agent-usage-title-tracker ACP proxy in my Zed settings.
-
-The repo is checked out at: <PATH TO THIS REPO>
-
-Please:
-1. Run `node setup.mjs` in that directory and show me what it reports. It
-   resolves my platform's paths itself — do not hand-write any of them.
-2. Run `node setup.mjs --write` to add the entry. It backs settings.json up
-   first, preserves the file's comments and trailing commas, and leaves any
-   existing "claude-acp" / "codex-acp" entries alone.
-3. Run `node usage.mjs` and report the percentages it prints.
-4. Tell me to pick "Claude + usage" in Zed's agent panel picker.
-
-If step 1 reports the adapter as not installed, tell me to open a `claude-acp`
-thread in Zed once first so Zed downloads it, then re-run.
-````
-
-## Layout
-
-```
-proxy.mjs                 generic ACP relay + selector decoration
-setup.mjs                 CLI: print or write this machine's Zed settings entry
-usage.mjs                 CLI: print a provider's snapshot
-bin/zed-agent-usage       what Zed spawns; finds node at run time (macOS, Linux)
-bin/zed-agent-usage.cmd   the same, for Windows
-providers/claude.mjs      Claude Code: Agent SDK get_usage control request
-providers/codex.mjs       Codex: codex app-server account/rateLimits/read
-providers/index.mjs       filename-based provider discovery
-lib/windows.mjs           window labelling and countdown formatting
-lib/resolve.mjs           locating node and the binaries Zed already installed
-lib/jsonc.mjs             comment-preserving settings.json edits
-```
+Usage is fetched at startup, at each turn end, every 60s, and just after a window
+resets. In between, the label is re-rendered from cache every 30s so the
+countdown stays current.
 
 ## Where the numbers come from
 
-Neither provider handles credentials and neither makes a model call, so no quota
-is consumed. Both delegate authentication to a subprocess that already does it.
+No credentials are handled and no model calls are made, so no quota is used —
+both providers delegate to a subprocess that authenticates itself.
 
-**Claude** — the Agent SDK's `get_usage` control request
-(`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`), which returns the
-data behind `/usage`: utilization 0–100 per window plus reset times. Note the
-name carries an explicit instability warning; if it is renamed upstream,
-`providers/claude.mjs` is the only place to update.
+- **Claude** — the Agent SDK's `get_usage` control request, the data behind
+  `/usage`. It is marked experimental upstream; if renamed,
+  `providers/claude.mjs` is the only place to change.
+- **Codex** — `codex app-server` → `account/rateLimits/read`.
 
-**Codex** — `codex app-server` over newline-delimited JSON-RPC:
-`initialize`, then `account/rateLimits/read`. The binary is whichever one Zed
-installed, found by matching `@openai/codex-*/vendor/*/bin` rather than naming a
-target triple, so a new platform or architecture needs no code change. Codex
-reports windows by duration (`windowDurationMins`) rather than by name, and which
-windows exist depends on the plan: a Plus account may report only the weekly
-window with `secondary: null`, so you may see just `wk 0%`. Labels are derived
-from the duration, so a plan that reports a 5-hour window gets `5h` with no code
-change.
+Adding another agent is one file: see [providers/README.md](providers/README.md).
 
-Fetched at startup, on every `usage_update` from the adapter (turn end,
-rate-limited to one fetch per 15s), every 60s, and once just after a window's
-reset falls due. Between fetches the label is re-rendered from the cached
-snapshot every 30s so the countdown stays current without spawning anything.
+## Warning marker
 
-### What does *not* work, and why
+Above 90% on any window, the label gains a red marker:
 
-- **Claude's ACP rate-limit meta.** The adapter attaches
-  `_meta["_claude/rateLimit"]` to `usage_update`
-  (`claude-agent-acp/dist/acp-agent.js:3344`), but Zed ignores it — there is no
-  `_claude/` key anywhere in the Zed binary. More fundamentally it carries a
-  `utilization` figure **only once a warning threshold is crossed** (5h ≥ 90%,
-  7d ≥ 75%). Below that the payload is `{status:"allowed", resetsAt,
-  rateLimitType}` with no percentage: in the CLI bundle the normal path (`aQ9`)
-  omits `utilization`, which is populated only by the surpassed-threshold
-  branches (`qH5`/`KH5`).
-- **Codex's ACP stream.** The codex-acp bundle contains zero rate-limit strings —
-  it drops `TokenCountEvent.rate_limits` entirely, so there is nothing to sniff.
-- **Local transcripts.** `~/.claude/projects/*.jsonl` holds token counts, not
-  plan-limit percentages. Checked 55 transcripts: zero occurrences of
-  `rateLimitType`, `utilization` or `used_percentage`.
-- **statusLine.** It does expose both Claude windows
-  (`rate_limits.five_hour.used_percentage`), but statusLine is a terminal feature
-  and is not executed on the ACP/SDK path.
+```
+22m 94% · wk 88%      ->      🔴 22m 94% · wk 88%
+```
 
-## Behaviour notes
+Below that there is no marker — in a row of plain text, it appearing is the
+signal. An emoji is used because ACP has no colour or severity field; the label
+is a plain string Zed paints with your theme.
 
-- Labels count down to the window reset rather than naming its length, so a
-  5-hour window resetting in 29 minutes reads `29m 26%`, and in 1h20m reads `1h 26%`
-  (floored, so it never promises a reset early). The weekly window reads `wk` until
-  its final 24 hours, then counts down too. Windows with no known reset time fall
-  back to their static label.
-- Each render rebuilds from the adapter's own option set, so suffixes never
-  stack, and only the selected value of the nominated selector is ever touched.
-- The label appears as soon as the first usage read lands. `session/new` often
-  arrives before it, so the proxy republishes the option set once the numbers are
-  in — and again whenever the countdown ticks, without another fetch.
-- Thread titles are relayed verbatim, so renaming a thread has no effect on the
-  usage readout. (Zed permanently stops accepting agent-provided titles for a
-  renamed thread, which is why the title is not used for this.)
-- Opening the selector's dropdown shows the suffix on the selected row too —
-  Zed renders the same field in both places.
-- For Claude, weekly prefers the all-models window, falling back to the highest
-  per-model window so the figure shown is always the binding one.
-- When plan limits don't apply (API key, Bedrock, Vertex), nothing is appended.
-- Zed has no icon option for custom agent servers, so a proxied thread shows a
-  generic icon rather than the Claude or OpenAI one.
+To change it, add an `env` block to the agent entry in `settings.json`:
+
+```json
+"env": { "ZED_AGENT_USAGE_MARKER": "off" }
+```
+
+| Want | Set |
+| --- | --- |
+| No marker, ever | `ZED_AGENT_USAGE_MARKER=off` |
+| A different glyph | `ZED_AGENT_USAGE_MARKER=⚠️` |
+| Warn earlier | `ZED_AGENT_USAGE_MARKER_AT=75` |
+| See it right now | `ZED_AGENT_USAGE_MARKER_AT=1` |
+
+Settings are read at startup, so restart the agent after editing.
 
 ## Config
 
 | Env var | Default | Purpose |
 | --- | --- | --- |
-| `ZED_AGENT_USAGE_PROVIDER` | `claude` | Provider id, if `--provider` is not passed |
-| `ZED_AGENT_USAGE_PROVIDER_PATH` | – | Absolute path to an out-of-tree provider |
-| `ZED_AGENT_USAGE_REFRESH_MS` | `60000` | Background refresh interval |
-| `ZED_AGENT_USAGE_RENDER_MS` | `30000` | How often the countdown label is re-rendered |
-| `ZED_AGENT_USAGE_SELECTOR` | per provider | Which config selector carries the usage |
+| `ZED_AGENT_USAGE_MARKER` | `🔴` | Warning glyph; `off` disables |
+| `ZED_AGENT_USAGE_MARKER_AT` | `90` | Percentage above which it appears |
+| `ZED_AGENT_USAGE_REFRESH_MS` | `60000` | Fetch interval |
+| `ZED_AGENT_USAGE_RENDER_MS` | `30000` | Re-render interval for the countdown |
 | `ZED_AGENT_USAGE_MIN_INTERVAL_MS` | `15000` | Minimum gap between fetches |
-| `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (Zed: `dev: open acp logs`) |
-| `ZED_AGENT_USAGE_NODE` | auto | Node binary the launcher runs the proxy with |
+| `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (`dev: open acp logs`) |
+| `ZED_AGENT_USAGE_PROVIDER` | `claude` | Provider, if `--provider` is not passed |
+| `ZED_AGENT_USAGE_PROVIDER_PATH` | – | An out-of-tree provider module |
+| `ZED_AGENT_USAGE_NODE` | auto | Node the launcher uses |
 | `ZED_AGENT_USAGE_ADAPTER_COMMAND` / `_ARGS` | auto | Override the wrapped adapter |
-| `CLAUDE_AGENT_SDK` | auto | Override the Claude SDK `sdk.mjs` path |
-| `CODEX_BIN` | auto | Override the `codex` binary path |
+| `CLAUDE_AGENT_SDK` / `CODEX_BIN` | auto | Override a provider's binary |
+
+## Layout
+
+```
+proxy.mjs                 ACP relay + the injected selector
+setup.mjs                 writes this machine's Zed settings entry
+usage.mjs                 prints a provider's snapshot
+bin/zed-agent-usage[.cmd] what Zed spawns; finds node at run time
+providers/                one file per agent
+lib/windows.mjs           countdown labelling
+lib/resolve.mjs           finding node and Zed's installed binaries
+lib/jsonc.mjs             comment-preserving settings.json edits
+```
 
 ## Tests
 
 ```sh
-npm test                      # unit tests, settings edits, then the proxy against
-                              # a canned adapter and stub provider, directly and
-                              # through the launcher; asserts the exact label
-npm run test:unit             # just the countdown labelling unit tests
-npm run test:launcher         # just the launcher pass
-npm run setup                 # print the entry for this machine
-npm run usage                 # print the Claude snapshot
-npm run usage:codex           # print the Codex snapshot
-npm run test:real             # proxy against the real claude-acp (handshake only)
-npm run test:real:codex       # proxy against the real codex-acp (handshake only)
-node test/real.mjs --launcher # ...started exactly as Zed is configured to
-PROMPT=hi npm run test:real   # also runs one short turn (uses quota)
+npm test                  # unit, settings, and the proxy against a canned adapter
+npm run usage             # live Claude snapshot (or: npm run usage:codex)
+npm run test:real         # against the real adapter, handshake only
 ```
 
-## Upstream
+## Limitations
+
+- Zed has no icon option for custom agents, so proxied entries show a generic
+  icon rather than the Claude or OpenAI one.
+- The proxy is long-lived: after updating this repo, restart the agent before
+  changes appear.
+
+## Notes
+
+Two things that look like they should work, but don't:
+
+- Zed already receives `_meta["_claude/rateLimit"]` from the Claude adapter, but
+  ignores it — and it carries no percentage until you are past a warning
+  threshold anyway.
+- `~/.claude/projects/*.jsonl` has token counts, not plan-limit percentages.
 
 Zed discussion [#54792](https://github.com/zed-industries/zed/discussions/54792)
-requests this as a native, opt-in agent-panel indicator. The proper fix is a Zed
-change; this proxy needs no Zed patch.
+asks for this natively.
 
 ## License
 
 [MIT](LICENSE) — free to use, modify and redistribute.
 
-Not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI or Zed
-Industries. "Claude", "Codex" and "Zed" are trademarks of their respective
-owners; this project merely interoperates with their tools. It relies on
-interfaces that are internal or explicitly marked experimental, so it may break
-on any upstream release.
+Not affiliated with Anthropic, OpenAI or Zed Industries. Relies on interfaces
+that are internal or marked experimental, so it may break on any upstream
+release.

@@ -5,8 +5,10 @@
 import assert from "node:assert/strict";
 import {
   countdownLabel,
+  describeWindows,
   formatWindows,
   labelForMinutes,
+  maxUsedPercent,
   msUntil,
   msUntilNextReset,
   windowLabel,
@@ -86,6 +88,22 @@ assert.equal(
   "",
   "a window without a percentage is skipped",
 );
+
+// --- describeWindows: the long form for the selector's description ---------
+const described = describeWindows(usage, { now: NOW });
+assert.match(described, /^5h 26% until .+ · wk 7% until .+$/, `long form: ${described}`);
+assert.equal(
+  describeWindows([{ label: "5h", usedPercent: 42, resetsAt: null }], { now: NOW }),
+  "5h 42%",
+  "no reset time, no 'until'",
+);
+assert.equal(describeWindows([], { now: NOW }), "", "nothing to describe");
+
+// --- maxUsedPercent decides whether the warning marker shows ---------------
+assert.equal(maxUsedPercent(usage), 26, "the window closest to its cap");
+assert.equal(maxUsedPercent([{ usedPercent: 5 }, { usedPercent: 94 }]), 94, "either position");
+assert.equal(maxUsedPercent([{ usedPercent: null }]), null, "nothing usable");
+assert.equal(maxUsedPercent([]), null, "no windows");
 
 // --- msUntilNextReset drives the post-reset refetch ------------------------
 assert.equal(msUntilNextReset(usage, NOW), 94 * 60_000, "soonest of the two");

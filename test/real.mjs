@@ -53,8 +53,9 @@ child.stdout.on("data", (chunk) => {
       for (const opt of configOptions) {
         const cur = (opt.options ?? []).find((v) => v.value === opt.currentValue);
         if (cur?.name && /\d+%/.test(cur.name)) {
-          labels.push(`${opt.id}: ${cur.name}`);
-          console.log(`<- SELECTOR ${opt.id} = ${JSON.stringify(cur.name)}`);
+          labels.push(`${opt.id} (${opt.name}): ${cur.name}`);
+          console.log(`<- SELECTOR ${opt.id} "${opt.name}" = ${JSON.stringify(cur.name)}`);
+          if (opt.description) console.log(`   description: ${opt.description}`);
         }
       }
     }
