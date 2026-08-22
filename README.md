@@ -9,8 +9,6 @@ It adds one read-only item to the selector row at the bottom of a thread:
 Bypass Permissions   Opus (1M context)   Xhigh   Fast mode   4h 11% · wk 15%
 ```
 
-<img width="411" height="200" alt="2026-08-20_23-17-11" src="https://github.com/user-attachments/assets/48a78fa0-cb32-4372-ab33-e3ca1de7c57f" />
-
 `4h 11%` means the 5-hour window is 11% used and resets in 4 hours. Hover for the
 exact reset times.
 
