@@ -12,6 +12,10 @@ Bypass Permissions   Opus (1M context)   Xhigh   Fast mode   4h 11% · wk 15%
 `4h 11%` means the 5-hour window is 11% used and resets in 4 hours. Hover for the
 exact reset times.
 
+<img width="696" height="130" alt="image" src="https://github.com/user-attachments/assets/7e41e3f0-ad1e-4a21-bec2-0159c3485904" />
+<img width="697" height="131" alt="image" src="https://github.com/user-attachments/assets/a3cb0758-029b-49d9-96e8-c6dfc5e3c648" />
+<img width="200" height="215" alt="image" src="https://github.com/user-attachments/assets/bba88290-8201-4f0b-8754-4d336acb1440" />
+
 ## Setup
 
 Nothing to install — no dependencies, and it reuses the adapters and node that
