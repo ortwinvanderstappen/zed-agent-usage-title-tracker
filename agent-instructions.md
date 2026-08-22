@@ -1,15 +1,15 @@
 # Setup instructions for an agent
 
-You are setting up **zed-agent-usage-title-tracker**, which shows Claude or Codex
-plan usage in Zed's agent panel. Do the following for the user.
+You are setting up **zed-agent-usage**, which shows Claude or Codex plan usage in
+Zed's agent panel. Do the following for the user.
 
 ## 1. Get the repo
 
 If it is not already checked out, clone it somewhere sensible and `cd` in:
 
 ```sh
-git clone https://github.com/ortwinvanderstappen/zed-agent-usage-title-tracker.git
-cd zed-agent-usage-title-tracker
+git clone https://github.com/ortwinvanderstappen/zed-agent-usage.git
+cd zed-agent-usage
 ```
 
 There are no dependencies — do not run `npm install`.

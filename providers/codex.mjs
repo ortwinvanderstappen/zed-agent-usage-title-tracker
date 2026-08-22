@@ -127,9 +127,9 @@ export default {
         params: {
           capabilities: { experimentalApi: true, requestAttestation: false },
           clientInfo: {
-            name: "zed-agent-usage-title-tracker",
+            name: "zed-agent-usage",
             version: "0.3.0",
-            title: "zed-agent-usage-title-tracker",
+            title: "zed-agent-usage",
           },
         },
       });

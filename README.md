@@ -1,4 +1,4 @@
-# zed-agent-usage-title-tracker
+# zed-agent-usage
 
 Shows your Claude or Codex plan usage in Zed's agent panel, counting down to each
 window's reset.
@@ -31,7 +31,7 @@ back any time.
 **Or hand this link to your coding agent and let it do the setup:**
 
 ```
-https://raw.githubusercontent.com/ortwinvanderstappen/zed-agent-usage-title-tracker/main/agent-instructions.md
+https://raw.githubusercontent.com/ortwinvanderstappen/zed-agent-usage/main/agent-instructions.md
 ```
 
 ## How it works
