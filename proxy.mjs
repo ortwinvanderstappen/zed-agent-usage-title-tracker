@@ -129,6 +129,10 @@ let resetTimer = null;
 /** sessionId -> the adapter's own options, so each render starts from a clean
  *  set rather than appending to its own output. */
 const rawConfigOptions = new Map();
+/** Request id -> sessionId, for responses that omit it. `session/load` carries
+ *  the id only in the request, so a resumed thread would otherwise never be
+ *  registered here and its label would freeze at whatever it loaded with. */
+const pendingSessionIds = new Map();
 
 function suffix() {
   return usage?.available ? formatWindows(usage.windows) : "";
@@ -253,9 +257,16 @@ async function refreshUsage({ force = false } = {}) {
 
 /** Inspect one agent -> client message, decorating the selector in place. */
 function transform(message) {
-  // Config options arrive on the session/new response, not a notification.
+  // Only a response can answer one of our recorded requests; an agent->client
+  // request has its own id space and must not consume the entry.
+  const isResponse = message?.id !== undefined && ("result" in message || "error" in message);
+  const answered = isResponse ? pendingSessionIds.get(message.id) : undefined;
+  if (isResponse) pendingSessionIds.delete(message.id);
+
+  // Config options arrive on the session/new and session/load responses.
   if (message?.result?.configOptions) {
-    const { sessionId, configOptions } = message.result;
+    const { configOptions } = message.result;
+    const sessionId = message.result.sessionId ?? answered;
     if (sessionId) rawConfigOptions.set(sessionId, configOptions);
     log(`config options: ${configOptions.map((o) => o?.id).join(", ")}`);
     // Startup fetch failed or has not landed: retry so the label arrives now.
@@ -294,6 +305,10 @@ function transform(message) {
 /** The adapter has never heard of our id, so it would reject the set-request
  *  Zed sends on click. Answer it here, with the full set the schema requires. */
 function interceptFromClient(message) {
+  // Remember which session a request belongs to; its response may not say.
+  if (message?.id !== undefined && message.params?.sessionId) {
+    pendingSessionIds.set(message.id, message.params.sessionId);
+  }
   if (message?.method !== "session/set_config_option") return false;
   if (message.params?.configId !== USAGE_OPTION_ID) return false;
   const sessionId = message.params?.sessionId;

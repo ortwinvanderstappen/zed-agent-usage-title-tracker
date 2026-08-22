@@ -26,6 +26,26 @@ process.stdin.on("data", (chunk) => {
       continue;
     }
 
+    if (msg.method === "session/load") {
+      // Note the absent sessionId: LoadSessionResponse has no such field.
+      send({
+        jsonrpc: "2.0",
+        id: msg.id,
+        result: {
+          configOptions: [
+            {
+              id: "effort",
+              name: "Effort",
+              type: "select",
+              currentValue: "xhigh",
+              options: [{ value: "xhigh", name: "Xhigh" }],
+            },
+          ],
+        },
+      });
+      continue;
+    }
+
     if (msg.method === "session/new") {
       const sessionId = "sess_test_1";
       // Both real adapters return config options here; "effort" is the one the

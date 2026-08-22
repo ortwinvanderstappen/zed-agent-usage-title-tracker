@@ -56,6 +56,10 @@ Usage is fetched at startup, at each turn end, every 60s, and just after a windo
 resets. In between, the label is re-rendered from cache every 30s so the
 countdown stays current.
 
+Reopening a thread goes through `session/load`, whose response omits the session
+id, so the proxy correlates it back to the request that carried one — otherwise a
+resumed thread would sit frozen at the figures it loaded with.
+
 Zed runs one proxy per window, so a snapshot is shared between them through a
 file in the temp dir — N proxies cost one fetch, not N. If reads start failing,
 the label gains a `?` and the tooltip says how old the numbers are, rather than
