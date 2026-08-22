@@ -3,7 +3,7 @@
  *  The Codex path in particular only ever sees one window on a Plus account, so
  *  the ordering and labelling below would otherwise first run in production. */
 import assert from "node:assert/strict";
-import { readCache, writeCache } from "../lib/cache.mjs";
+import { acquireFetchLock, readCache, waitForCache, writeCache } from "../lib/cache.mjs";
 import { windowsFromRateLimits } from "../providers/codex.mjs";
 import { formatWindows } from "../lib/windows.mjs";
 
@@ -22,6 +22,26 @@ assert.equal(readCache(id, 60_000), null, "too old to reuse");
 
 writeCache(id, { nonsense: true });
 assert.equal(readCache(id, 60_000), null, "wrong shape reads as a miss");
+
+// --- single-flight lock ---------------------------------------------------
+// Without this, proxies started together all miss the cache and all fetch.
+const lockId = `lock-${process.pid}`;
+const first = acquireFetchLock(lockId);
+assert.ok(first, "the first caller wins");
+assert.equal(acquireFetchLock(lockId), null, "a second caller is turned away");
+first();
+const third = acquireFetchLock(lockId);
+assert.ok(third, "released, so the next caller wins");
+third();
+// A holder that dies mid-fetch must not block everyone forever.
+assert.ok(acquireFetchLock(lockId), "acquired for the staleness check");
+assert.ok(acquireFetchLock(lockId, -1), "a stale lock is taken over");
+acquireFetchLock(lockId, -1)?.();
+
+// A loser gets whatever the winner published.
+writeCache(lockId, { fetchedAt: Date.now(), usage: { available: true, windows: [] } });
+assert.ok(await waitForCache(lockId, 60_000, 1_000), "published snapshot is visible");
+assert.equal(await waitForCache(`missing-${process.pid}`, 60_000, 300), null, "times out cleanly");
 
 // --- Codex windows --------------------------------------------------------
 const primary5h = { usedPercent: 42, windowDurationMins: 300, resetsAt: 1_787_000_000 };

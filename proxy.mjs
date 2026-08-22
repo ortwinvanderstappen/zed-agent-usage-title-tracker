@@ -11,7 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { loadProvider } from "./providers/index.mjs";
-import { readCache, writeCache } from "./lib/cache.mjs";
+import { acquireFetchLock, readCache, waitForCache, writeCache } from "./lib/cache.mjs";
 import {
   clampPercent,
   describeWindows,
@@ -20,8 +20,16 @@ import {
   msUntilNextReset,
 } from "./lib/windows.mjs";
 
-const REFRESH_MS = Number(process.env.ZED_AGENT_USAGE_REFRESH_MS ?? 60_000);
-const MIN_INTERVAL_MS = Number(process.env.ZED_AGENT_USAGE_MIN_INTERVAL_MS ?? 15_000);
+/** Usage only moves when a turn runs, so refreshes are triggered by turns --
+ *  starting one and finishing one -- rather than by the clock.
+ *
+ *  MIN_AGE is the floor: however many chats fire triggers, a real fetch happens
+ *  at most this often across every proxy on the machine. MAX_AGE is the ceiling:
+ *  if nothing has triggered for that long, refresh anyway so a long-idle window
+ *  is not showing yesterday's figures. Both are measured against the shared
+ *  snapshot, which is how the interval is kept across chats and windows. */
+const MIN_AGE_MS = Number(process.env.ZED_AGENT_USAGE_MIN_AGE_MS ?? 60_000);
+const MAX_AGE_MS = Number(process.env.ZED_AGENT_USAGE_MAX_AGE_MS ?? 900_000);
 // Labels count down, so they need re-rendering as time passes even when the
 // numbers have not moved. Pure and cache-backed, so far cheaper than a fetch.
 const RENDER_MS = Number(process.env.ZED_AGENT_USAGE_RENDER_MS ?? 30_000);
@@ -31,9 +39,7 @@ const off = (v) => ["", "off", "none", "false", "0"].includes((v ?? "").toLowerC
 /** Reuse a snapshot another proxy fetched within this window. Zed runs one proxy
  *  per window, so without this each pays for the same numbers. */
 // `?? "on"` matters: off() counts an empty string as off, and unset must not.
-const CACHE_MS = off(process.env.ZED_AGENT_USAGE_CACHE ?? "on")
-  ? 0
-  : Number(process.env.ZED_AGENT_USAGE_CACHE_MS ?? REFRESH_MS);
+const SHARING = !off(process.env.ZED_AGENT_USAGE_CACHE ?? "on");
 
 /** After this long without a successful read, say so rather than showing figures
  *  that have quietly stopped moving. */
@@ -118,7 +124,6 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 
 /** Latest snapshot from the provider, or null until the first success. */
 let usage = null;
-let lastFetch = 0;
 let fetching = false;
 /** When the current snapshot was read -- by us or by another proxy. */
 let fetchedAt = 0;
@@ -226,33 +231,63 @@ function scheduleResetRefresh() {
   const due = msUntilNextReset(usage?.windows);
   if (due == null) return;
   // Slack, and never a busy loop on a past timestamp.
-  resetTimer = setTimeout(() => void refreshUsage({ force: true }), Math.max(due, 0) + 2_000);
+  resetTimer = setTimeout(
+    () => void refreshUsage({ maxAge: 0, reason: "window reset" }),
+    Math.max(due, 0) + 2_000,
+  );
   resetTimer.unref?.();
 }
 
-async function refreshUsage({ force = false } = {}) {
+/** Refresh if the shared snapshot is older than `maxAge`.
+ *
+ *  Only one process fetches: the lock winner spawns the provider, everyone else
+ *  waits for its result. Without that, proxies started together would all miss
+ *  the cache and all spawn at once. */
+async function refreshUsage({ maxAge = MIN_AGE_MS, reason = "" } = {}) {
   if (fetching) return;
-  if (!force && Date.now() - lastFetch < MIN_INTERVAL_MS) return;
   fetching = true;
   try {
-    // Another proxy may have just read this; reuse rather than spawn again.
-    const shared = CACHE_MS ? readCache(provider.id, CACHE_MS) : null;
-    const next = shared?.usage ?? (await provider.fetchUsage());
-    lastFetch = Date.now();
-    fetchedAt = shared?.fetchedAt ?? lastFetch;
-    usage = next;
-    if (!shared && CACHE_MS) writeCache(provider.id, { fetchedAt, usage: next });
-    log(
-      `usage:${formatWindows(next.windows) || " (none)"} available=${next.available}` +
-        `${shared ? " (shared)" : ""}`,
-    );
-    renderSelectors();
-    scheduleResetRefresh();
+    const shared = SHARING ? readCache(provider.id, maxAge) : null;
+    if (shared) {
+      adopt(shared, `${reason} (shared)`);
+      return;
+    }
+
+    let release = SHARING ? acquireFetchLock(provider.id) : () => {};
+    if (!release) {
+      const waited = await waitForCache(provider.id, MAX_AGE_MS);
+      if (waited) {
+        adopt(waited, `${reason} (published by another proxy)`);
+        return;
+      }
+      // The holder died or is slower than our patience. Showing nothing is the
+      // worst outcome, so do the work here rather than return empty-handed.
+      log(`${reason}: waited but no snapshot appeared; fetching here instead`);
+      release = () => {};
+    }
+
+    try {
+      const next = await provider.fetchUsage();
+      const snapshot = { fetchedAt: Date.now(), usage: next };
+      if (SHARING) writeCache(provider.id, snapshot);
+      adopt(snapshot, `${reason} (fetched)`);
+    } finally {
+      release();
+    }
   } catch (err) {
     log(`usage fetch failed: ${err?.message || err}`);
   } finally {
     fetching = false;
   }
+}
+
+/** Take a snapshot as current, whoever produced it. */
+function adopt(snapshot, note) {
+  usage = snapshot.usage;
+  fetchedAt = snapshot.fetchedAt;
+  log(`usage:${formatWindows(usage.windows) || " (none)"} ${note}`);
+  renderSelectors();
+  scheduleResetRefresh();
 }
 
 /** Inspect one agent -> client message, decorating the selector in place. */
@@ -270,7 +305,7 @@ function transform(message) {
     if (sessionId) rawConfigOptions.set(sessionId, configOptions);
     log(`config options: ${configOptions.map((o) => o?.id).join(", ")}`);
     // Startup fetch failed or has not landed: retry so the label arrives now.
-    if (!usage) void refreshUsage({ force: true });
+    if (!usage) void refreshUsage({ reason: "session start" });
     return {
       ...message,
       result: { ...message.result, configOptions: withUsageOption(configOptions) },
@@ -294,8 +329,8 @@ function transform(message) {
     };
   }
 
-  // Adapters emit usage_update at turn end: a good moment to re-read.
-  if (update.sessionUpdate === "usage_update") void refreshUsage();
+  // Turn end: the one moment the numbers are guaranteed to have moved.
+  if (update.sessionUpdate === "usage_update") void refreshUsage({ reason: "turn end" });
 
   return message;
 }
@@ -309,6 +344,9 @@ function interceptFromClient(message) {
   if (message?.id !== undefined && message.params?.sessionId) {
     pendingSessionIds.set(message.id, message.params.sessionId);
   }
+  // Turn start: worth a look before the user commits to a prompt.
+  if (message?.method === "session/prompt") void refreshUsage({ reason: "turn start" });
+
   if (message?.method !== "session/set_config_option") return false;
   if (message.params?.configId !== USAGE_OPTION_ID) return false;
   const sessionId = message.params?.sessionId;
@@ -378,7 +416,8 @@ child.stdout.on("end", () => {
   if (buffer.trim()) process.stdout.write(`${buffer}\n`);
 });
 
-void refreshUsage({ force: true });
-setInterval(() => void refreshUsage(), REFRESH_MS).unref();
+void refreshUsage({ reason: "startup" });
+// Safety net only: a no-op unless nothing has triggered for MAX_AGE.
+setInterval(() => void refreshUsage({ maxAge: MAX_AGE_MS, reason: "idle" }), 60_000).unref();
 // Re-render between fetches so the countdown stays honest without a turn.
 setInterval(renderSelectors, RENDER_MS).unref();

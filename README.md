@@ -52,16 +52,22 @@ of its own (`_usage`; ACP reserves the `_` prefix for custom use) and passes
 everything else through untouched. Clicking it would make Zed ask the adapter to
 set an option it has never heard of, so the proxy answers that request itself.
 
-Usage is fetched at startup, at each turn end, every 60s, and just after a window
-resets. In between, the label is re-rendered from cache every 30s so the
-countdown stays current.
+Usage only moves when a turn runs, so fetches are triggered by turns rather than
+by the clock: session start, turn start, turn end, and just after a window
+resets. `MIN_AGE` is the floor — however many chats fire triggers, a real fetch
+happens at most that often. `MAX_AGE` is the ceiling, so a long-idle window is
+never showing yesterday's figures. In between, the label is re-rendered from
+cache every 30s so the countdown stays current without fetching.
 
 Reopening a thread goes through `session/load`, whose response omits the session
 id, so the proxy correlates it back to the request that carried one — otherwise a
 resumed thread would sit frozen at the figures it loaded with.
 
-Zed runs one proxy per window, so a snapshot is shared between them through a
-file in the temp dir — N proxies cost one fetch, not N. If reads start failing,
+Zed runs one proxy per window, and they share one snapshot through a file in the
+temp dir, so N windows cost one fetch rather than N. Freshness alone is not
+enough for that: proxies started together would all miss the cache and all fetch
+at once, so a lock elects one to do the work while the others wait for its
+result. Ten chats cannot multiply the cost. If reads start failing,
 the label gains a `?` and the tooltip says how old the numbers are, rather than
 showing figures that have quietly stopped moving.
 
@@ -135,11 +141,10 @@ want in `default_config_options` first.
 | --- | --- | --- |
 | `ZED_AGENT_USAGE_MARKER` | `🔴` | Warning glyph; `off` disables |
 | `ZED_AGENT_USAGE_MARKER_AT` | `90` | Percentage (0-100) above which it appears |
-| `ZED_AGENT_USAGE_REFRESH_MS` | `60000` | Fetch interval |
+| `ZED_AGENT_USAGE_MIN_AGE_MS` | `60000` | Floor: a real fetch happens at most this often, machine-wide |
+| `ZED_AGENT_USAGE_MAX_AGE_MS` | `900000` | Ceiling: refresh anyway if nothing triggered for this long |
 | `ZED_AGENT_USAGE_RENDER_MS` | `30000` | Re-render interval for the countdown |
-| `ZED_AGENT_USAGE_MIN_INTERVAL_MS` | `15000` | Minimum gap between fetches |
 | `ZED_AGENT_USAGE_CACHE` | on | `off` stops sharing snapshots between proxies |
-| `ZED_AGENT_USAGE_CACHE_MS` | `60000` | How long a shared snapshot may be reused |
 | `ZED_AGENT_USAGE_STALE_MS` | `300000` | Age after which the label shows `?` |
 | `ZED_AGENT_USAGE_HIDE` | – | Config-option ids to hide from the row |
 | `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (`dev: open acp logs`) |
