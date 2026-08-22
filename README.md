@@ -96,6 +96,23 @@ To change it, add an `env` block to the agent entry in `settings.json`:
 
 Settings are read at startup, so restart the agent after editing.
 
+## Hiding selectors
+
+That row gets busy. Any of the agent's own selectors can be dropped from it,
+which is useful for ones you have pinned in `settings.json` and never touch:
+
+```json
+"env": { "ZED_AGENT_USAGE_HIDE": "mode,fast" }
+```
+
+Zed then renders only what is left, plus the usage. To find the ids, start with
+`ZED_AGENT_USAGE_DEBUG=1` and look for the `config options:` line in
+`dev: open acp logs` — Claude offers `mode`, `model`, `effort`, `fast`; Codex
+`mode`, `collaboration_mode`, `model`, `reasoning_effort`, `fast-mode`.
+
+A hidden selector can no longer be changed from the panel, so pin the value you
+want in `default_config_options` first.
+
 ## Config
 
 | Env var | Default | Purpose |
@@ -108,6 +125,7 @@ Settings are read at startup, so restart the agent after editing.
 | `ZED_AGENT_USAGE_CACHE` | on | `off` stops sharing snapshots between proxies |
 | `ZED_AGENT_USAGE_CACHE_MS` | `60000` | How long a shared snapshot may be reused |
 | `ZED_AGENT_USAGE_STALE_MS` | `300000` | Age after which the label shows `?` |
+| `ZED_AGENT_USAGE_HIDE` | – | Config-option ids to hide from the row |
 | `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (`dev: open acp logs`) |
 | `ZED_AGENT_USAGE_PROVIDER` | `claude` | Provider, if `--provider` is not passed |
 | `ZED_AGENT_USAGE_PROVIDER_PATH` | – | An out-of-tree provider module |

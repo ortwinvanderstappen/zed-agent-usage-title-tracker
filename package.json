@@ -10,7 +10,7 @@
     "setup": "node setup.mjs",
     "usage": "node usage.mjs",
     "usage:codex": "node usage.mjs codex",
-    "test": "node test/windows.mjs && node test/units.mjs && node test/settings.mjs && node test/run.mjs && node test/run.mjs --countdown && node test/run.mjs --marker && node test/run.mjs --no-marker && node test/run.mjs --stale && node test/run.mjs --launcher",
+    "test": "node test/windows.mjs && node test/units.mjs && node test/settings.mjs && node test/run.mjs && node test/run.mjs --countdown && node test/run.mjs --marker && node test/run.mjs --no-marker && node test/run.mjs --stale && node test/run.mjs --hide && node test/run.mjs --launcher",
     "test:launcher": "node test/run.mjs --launcher",
     "test:real": "node test/real.mjs",
     "test:real:codex": "node test/real.mjs codex",

@@ -38,6 +38,16 @@ const CACHE_MS = off(process.env.ZED_AGENT_USAGE_CACHE ?? "on")
  *  that have quietly stopped moving. */
 const STALE_MS = Number(process.env.ZED_AGENT_USAGE_STALE_MS ?? 300_000);
 
+/** Config-option ids to drop from the row. Useful for selectors you have already
+ *  pinned in settings.json and do not want to look at. Run with
+ *  ZED_AGENT_USAGE_DEBUG=1 to see the available ids. */
+const HIDDEN = new Set(
+  (process.env.ZED_AGENT_USAGE_HIDE ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean),
+);
+
 /** Warning glyph shown above MARKER_AT percent. An emoji because ACP has no
  *  colour or severity field. `off` disables it; any other value replaces it. */
 const MARKER = (() => {
@@ -161,11 +171,13 @@ function usageOption() {
   };
 }
 
-/** Append-only: every real option passes through untouched. */
+/** The row Zed renders: the adapter's options minus any hidden, plus ours. Kept
+ *  options pass through untouched -- only the set membership changes. */
 function withUsageOption(configOptions) {
   if (!Array.isArray(configOptions)) return configOptions;
+  const kept = HIDDEN.size ? configOptions.filter((opt) => !HIDDEN.has(opt?.id)) : configOptions;
   const mine = usageOption();
-  return mine ? [...configOptions, mine] : configOptions;
+  return mine ? [...kept, mine] : kept;
 }
 
 // ---------------------------------------------------------------- framing
@@ -242,6 +254,7 @@ function transform(message) {
   if (message?.result?.configOptions) {
     const { sessionId, configOptions } = message.result;
     if (sessionId) rawConfigOptions.set(sessionId, configOptions);
+    log(`config options: ${configOptions.map((o) => o?.id).join(", ")}`);
     // Startup fetch failed or has not landed: retry so the label arrives now.
     if (!usage) void refreshUsage({ force: true });
     return {

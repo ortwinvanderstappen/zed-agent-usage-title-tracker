@@ -9,6 +9,7 @@
  *    node test/run.mjs --marker      threshold lowered, so the warning marker shows
  *    node test/run.mjs --no-marker   ...and MARKER=off suppresses it again
  *    node test/run.mjs --stale       snapshot counts as stale, so the label warns
+ *    node test/run.mjs --hide        a real selector is hidden from the row
  *
  *  The launcher pass matters because that is what settings.json points at, and
  *  it is a different file per platform. The countdown pass covers the labels a
@@ -33,6 +34,8 @@ const marker = process.argv.includes("--marker");
 const markerOff = process.argv.includes("--no-marker");
 // A stale-after of 1ms makes the fresh snapshot count as stale immediately.
 const stale = process.argv.includes("--stale");
+// Hides "model", which the canned adapter also reports, leaving "effort".
+const hide = process.argv.includes("--hide");
 const [command, commandArgs] = launchArgv({
   viaLauncher: process.argv.includes("--launcher"),
 });
@@ -41,6 +44,7 @@ const mode = [
   marker && "marker",
   markerOff && "marker-off",
   stale && "stale",
+  hide && "hide",
 ]
   .filter(Boolean)
   .join("+");
@@ -63,6 +67,7 @@ const child = spawn(command, commandArgs, {
     ...(marker || markerOff ? { ZED_AGENT_USAGE_MARKER_AT: "10" } : {}),
     ...(markerOff ? { ZED_AGENT_USAGE_MARKER: "off" } : {}),
     ...(stale ? { ZED_AGENT_USAGE_STALE_MS: "1" } : {}),
+    ...(hide ? { ZED_AGENT_USAGE_HIDE: "model" } : {}),
     // Never share a snapshot with the developer's real proxies during a test.
     ZED_AGENT_USAGE_CACHE: "off",
   },
@@ -76,6 +81,7 @@ const selectedName = (configOptions, id) => {
 
 const usages = [];
 const efforts = [];
+const idSets = [];
 const titles = [];
 let leaked = null;
 let setReply = null;
@@ -93,6 +99,7 @@ child.stdout.on("data", (chunk) => {
 
     const configOptions = msg.result?.configOptions ?? msg.params?.update?.configOptions;
     if (configOptions) {
+      idSets.push(configOptions.map((o) => o.id));
       const mine = selectedName(configOptions, "_usage");
       if (mine) usages.push(mine);
       efforts.push(selectedName(configOptions, "effort"));
@@ -129,6 +136,7 @@ setTimeout(() => {
   console.log(`\nusage labels:  ${JSON.stringify(usages)}`);
   console.log(`effort labels: ${JSON.stringify(efforts)}`);
   console.log(`titles:        ${JSON.stringify(titles)}`);
+  console.log(`option ids:    ${JSON.stringify(idSets)}`);
   console.log(`set reply:     ${JSON.stringify(setReply)?.slice(0, 120)}`);
 
   if (!usages.includes(EXPECTED)) {
@@ -144,6 +152,15 @@ setTimeout(() => {
   // The agent's own controls must be handed through verbatim.
   if (efforts.some((l) => l !== "Xhigh")) {
     console.error(`FAIL: a real selector was modified: ${JSON.stringify(efforts)}`);
+    process.exit(1);
+  }
+  // Hiding removes only the named option, and never ours.
+  if (hide && idSets.some((ids) => ids.includes("model"))) {
+    console.error(`FAIL: hidden option still present: ${JSON.stringify(idSets)}`);
+    process.exit(1);
+  }
+  if (idSets.some((ids) => !ids.includes("effort") || !ids.includes("_usage"))) {
+    console.error(`FAIL: a kept option went missing: ${JSON.stringify(idSets)}`);
     process.exit(1);
   }
   // The set-request for our id must never reach the agent.
