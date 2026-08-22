@@ -11,6 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { loadProvider } from "./providers/index.mjs";
+import { readCache, writeCache } from "./lib/cache.mjs";
 import {
   describeWindows,
   formatWindows,
@@ -24,14 +25,25 @@ const MIN_INTERVAL_MS = Number(process.env.ZED_AGENT_USAGE_MIN_INTERVAL_MS ?? 15
 // numbers have not moved. Pure and cache-backed, so far cheaper than a fetch.
 const RENDER_MS = Number(process.env.ZED_AGENT_USAGE_RENDER_MS ?? 30_000);
 const DEBUG = process.env.ZED_AGENT_USAGE_DEBUG === "1";
+const off = (v) => ["", "off", "none", "false", "0"].includes((v ?? "").toLowerCase());
+
+/** Reuse a snapshot another proxy fetched within this window. Zed runs one proxy
+ *  per window, so without this each pays for the same numbers. */
+// `?? "on"` matters: off() counts an empty string as off, and unset must not.
+const CACHE_MS = off(process.env.ZED_AGENT_USAGE_CACHE ?? "on")
+  ? 0
+  : Number(process.env.ZED_AGENT_USAGE_CACHE_MS ?? REFRESH_MS);
+
+/** After this long without a successful read, say so rather than showing figures
+ *  that have quietly stopped moving. */
+const STALE_MS = Number(process.env.ZED_AGENT_USAGE_STALE_MS ?? 300_000);
 
 /** Warning glyph shown above MARKER_AT percent. An emoji because ACP has no
  *  colour or severity field. `off` disables it; any other value replaces it. */
 const MARKER = (() => {
   const raw = process.env.ZED_AGENT_USAGE_MARKER;
   if (raw === undefined) return "🔴";
-  const value = raw.trim();
-  return ["", "off", "none", "false", "0"].includes(value.toLowerCase()) ? "" : value;
+  return off(raw.trim()) ? "" : raw.trim();
 })();
 const MARKER_AT = Number(process.env.ZED_AGENT_USAGE_MARKER_AT ?? 90);
 
@@ -95,6 +107,8 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 let usage = null;
 let lastFetch = 0;
 let fetching = false;
+/** When the current snapshot was read -- by us or by another proxy. */
+let fetchedAt = 0;
 /** Last published label, so fetch and render tick share one "did it change?". */
 let lastSuffix = null;
 /** Timer that re-reads usage just after a window rolls over. */
@@ -107,14 +121,22 @@ function suffix() {
   return usage?.available ? formatWindows(usage.windows) : "";
 }
 
-/** The label Zed shows: the windows, plus a marker when one is running out. */
+/** Minutes since the snapshot was read, or null if it is still fresh. */
+function staleMinutes() {
+  if (!fetchedAt) return null;
+  const age = Date.now() - fetchedAt;
+  return age > STALE_MS ? Math.floor(age / 60_000) : null;
+}
+
+/** The label Zed shows: the windows, a marker when one is running out, and a
+ *  "?" when the numbers have stopped being refreshed. */
 function usageLabel() {
   const tail = suffix();
   if (!tail) return "";
   const label = tail.slice(3); // drop the leading " · "
   const worst = maxUsedPercent(usage?.windows);
   const warn = MARKER && worst != null && worst > MARKER_AT;
-  return warn ? `${MARKER} ${label}` : label;
+  return `${warn ? `${MARKER} ` : ""}${label}${staleMinutes() == null ? "" : " ?"}`;
 }
 
 /** Our selector. Single-value so it reads as a label, and no `category` so Zed
@@ -122,7 +144,13 @@ function usageLabel() {
 function usageOption() {
   const label = usageLabel();
   if (!label) return null;
-  const detail = describeWindows(usage?.windows);
+  const stale = staleMinutes();
+  const detail = [
+    describeWindows(usage?.windows),
+    stale == null ? null : `last read ${stale}m ago`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return {
     id: USAGE_OPTION_ID,
     name: "Usage",
@@ -188,10 +216,17 @@ async function refreshUsage({ force = false } = {}) {
   if (!force && Date.now() - lastFetch < MIN_INTERVAL_MS) return;
   fetching = true;
   try {
-    const next = await provider.fetchUsage();
+    // Another proxy may have just read this; reuse rather than spawn again.
+    const shared = CACHE_MS ? readCache(provider.id, CACHE_MS) : null;
+    const next = shared?.usage ?? (await provider.fetchUsage());
     lastFetch = Date.now();
+    fetchedAt = shared?.fetchedAt ?? lastFetch;
     usage = next;
-    log(`usage:${formatWindows(next.windows) || " (none)"} available=${next.available}`);
+    if (!shared && CACHE_MS) writeCache(provider.id, { fetchedAt, usage: next });
+    log(
+      `usage:${formatWindows(next.windows) || " (none)"} available=${next.available}` +
+        `${shared ? " (shared)" : ""}`,
+    );
     renderSelectors();
     scheduleResetRefresh();
   } catch (err) {

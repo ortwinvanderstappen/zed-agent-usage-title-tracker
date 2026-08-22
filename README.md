@@ -54,6 +54,11 @@ Usage is fetched at startup, at each turn end, every 60s, and just after a windo
 resets. In between, the label is re-rendered from cache every 30s so the
 countdown stays current.
 
+Zed runs one proxy per window, so a snapshot is shared between them through a
+file in the temp dir — N proxies cost one fetch, not N. If reads start failing,
+the label gains a `?` and the tooltip says how old the numbers are, rather than
+showing figures that have quietly stopped moving.
+
 ## Where the numbers come from
 
 No credentials are handled and no model calls are made, so no quota is used —
@@ -102,6 +107,9 @@ Settings are read at startup, so restart the agent after editing.
 | `ZED_AGENT_USAGE_REFRESH_MS` | `60000` | Fetch interval |
 | `ZED_AGENT_USAGE_RENDER_MS` | `30000` | Re-render interval for the countdown |
 | `ZED_AGENT_USAGE_MIN_INTERVAL_MS` | `15000` | Minimum gap between fetches |
+| `ZED_AGENT_USAGE_CACHE` | on | `off` stops sharing snapshots between proxies |
+| `ZED_AGENT_USAGE_CACHE_MS` | `60000` | How long a shared snapshot may be reused |
+| `ZED_AGENT_USAGE_STALE_MS` | `300000` | Age after which the label shows `?` |
 | `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (`dev: open acp logs`) |
 | `ZED_AGENT_USAGE_PROVIDER` | `claude` | Provider, if `--provider` is not passed |
 | `ZED_AGENT_USAGE_PROVIDER_PATH` | – | An out-of-tree provider module |
@@ -118,6 +126,7 @@ usage.mjs                 prints a provider's snapshot
 bin/zed-agent-usage[.cmd] what Zed spawns; finds node at run time
 providers/                one file per agent
 lib/windows.mjs           countdown labelling
+lib/cache.mjs             snapshot shared between proxies
 lib/resolve.mjs           finding node and Zed's installed binaries
 lib/jsonc.mjs             comment-preserving settings.json edits
 ```

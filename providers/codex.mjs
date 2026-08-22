@@ -50,6 +50,13 @@ function toWindow(raw) {
   };
 }
 
+/** Codex's `rateLimits` payload -> our window list, shortest window first. */
+export function windowsFromRateLimits(limits) {
+  return [toWindow(limits?.primary), toWindow(limits?.secondary)]
+    .filter(Boolean)
+    .sort((a, b) => a.minutes - b.minutes);
+}
+
 export default {
   id: "codex",
   displayName: "Codex",
@@ -103,10 +110,7 @@ export default {
               return done(reject, new Error(`rateLimits/read failed: ${msg.error.message}`));
             }
             const limits = msg.result?.rateLimits ?? {};
-            const windows = [toWindow(limits.primary), toWindow(limits.secondary)]
-              .filter(Boolean)
-              // Shortest window first, so "5h" precedes "wk".
-              .sort((a, b) => a.minutes - b.minutes);
+            const windows = windowsFromRateLimits(limits);
             return done(resolve, {
               available: windows.length > 0,
               planType: limits.planType ?? null,
