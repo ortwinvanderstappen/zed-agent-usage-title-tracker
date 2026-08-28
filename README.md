@@ -6,11 +6,13 @@ window's reset.
 It adds one read-only item to the selector row at the bottom of a thread:
 
 ```
-Bypass Permissions   Opus (1M context)   Xhigh   Fast mode   4h 11% · wk 15%
+Bypass Permissions   Opus (1M context)   Xhigh   4h 11% · wk 15%   28 Aug, 11:39
 ```
 
-`4h 11%` means the 5-hour window is 11% used and resets in 4 hours. Hover for the
-exact reset times.
+`4h 11%` means the 5-hour window is 11% used and resets in 4 hours. Hover for
+the exact reset times. The second item is when the thread was last worked in —
+Zed's thread list only shows that relatively ("9m"), which is no help on
+returning to a thread days later.
 
 <img width="696" height="130" alt="image" src="https://github.com/user-attachments/assets/7e41e3f0-ad1e-4a21-bec2-0159c3485904" />
 <img width="697" height="131" alt="image" src="https://github.com/user-attachments/assets/a3cb0758-029b-49d9-96e8-c6dfc5e3c648" />
@@ -152,6 +154,8 @@ want in `default_config_options` first.
 | `ZED_AGENT_USAGE_STALE_AFTER` | `2` | Failed reads in a row before the label shows `?` |
 | `ZED_AGENT_USAGE_IDLE_AFTER_MS` | `600000` | No turns for this long: stop refreshing |
 | `ZED_AGENT_USAGE_HIDE` | – | Config-option ids to hide from the row |
+| `ZED_AGENT_USAGE_LAST_ACTIVITY` | on | `off` removes the last-activity item |
+| `ZED_AGENT_USAGE_CACHE_DIR` | temp dir | Where the shared snapshot and activity record live |
 | `ZED_AGENT_USAGE_DEBUG` | – | `1` logs to stderr (`dev: open acp logs`) |
 | `ZED_AGENT_USAGE_PROVIDER` | `claude` | Provider, if `--provider` is not passed |
 | `ZED_AGENT_USAGE_PROVIDER_PATH` | – | An out-of-tree provider module |
@@ -168,7 +172,7 @@ usage.mjs                 prints a provider's snapshot
 bin/zed-agent-usage[.cmd] what Zed spawns; finds node at run time
 providers/                one file per agent
 lib/windows.mjs           countdown labelling
-lib/cache.mjs             snapshot shared between proxies
+lib/cache.mjs             snapshot + activity record shared between proxies
 lib/resolve.mjs           finding node and Zed's installed binaries
 lib/jsonc.mjs             comment-preserving settings.json edits
 ```

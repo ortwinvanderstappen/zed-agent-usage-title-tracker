@@ -11,7 +11,14 @@
 
 import { spawn } from "node:child_process";
 import { loadProvider } from "./providers/index.mjs";
-import { acquireFetchLock, readCache, waitForCache, writeCache } from "./lib/cache.mjs";
+import {
+  acquireFetchLock,
+  readCache,
+  readSessionActivity,
+  waitForCache,
+  writeCache,
+  writeSessionActivity,
+} from "./lib/cache.mjs";
 import {
   clampPercent,
   describeWindows,
@@ -92,7 +99,15 @@ log(`provider: ${provider.id}, marker ${MARKER || "off"} above ${MARKER_AT}%`);
 /** ACP reserves the `_` prefix for custom use, so this cannot collide with an
  *  option a real adapter grows later. */
 const USAGE_OPTION_ID = "_usage";
-const USAGE_VALUE_ID = "current";
+const LAST_ACTIVITY_OPTION_ID = "_lastActivity";
+const OWN_VALUE_ID = "current";
+/** Both injected ids, so a set-request for either can be answered here. */
+const OWN_OPTION_IDS = new Set([USAGE_OPTION_ID, LAST_ACTIVITY_OPTION_ID]);
+
+/** Shows when a thread was last worked in. Zed renders `updatedAt` as "9m",
+ *  which is no help on returning to a thread days later, and the format is not
+ *  ours to change -- so state it plainly instead. `off` disables. */
+const SHOW_LAST_ACTIVITY = !off(process.env.ZED_AGENT_USAGE_LAST_ACTIVITY ?? "on");
 
 // ---------------------------------------------------------------- adapter
 
@@ -145,6 +160,9 @@ let resetTimer = null;
 /** sessionId -> the adapter's own options, so each render starts from a clean
  *  set rather than appending to its own output. */
 const rawConfigOptions = new Map();
+/** sessionId -> epoch ms of the last turn, from the agent's own session records
+ *  where available and from what we observe otherwise. */
+let sessionActivity = SHOW_LAST_ACTIVITY ? readSessionActivity() : new Map();
 /** Request id -> sessionId, for responses that omit it. `session/load` carries
  *  the id only in the request, so a resumed thread would otherwise never be
  *  registered here and its label would freeze at whatever it loaded with. */
@@ -188,18 +206,55 @@ function usageOption() {
     name: "Usage",
     description: detail || "Plan usage",
     type: "select",
-    currentValue: USAGE_VALUE_ID,
-    options: [{ value: USAGE_VALUE_ID, name: label, description: detail || undefined }],
+    currentValue: OWN_VALUE_ID,
+    options: [{ value: OWN_VALUE_ID, name: label, description: detail || undefined }],
+  };
+}
+
+/** Absolute date and time, since "9m ago" is what we are trying to improve on. */
+function formatActivity(at) {
+  return new Date(at).toLocaleString(undefined, {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Our second selector: when this thread was last worked in. Omitted entirely
+ *  when unknown, rather than guessing. */
+function lastActivityOption(sessionId) {
+  if (!SHOW_LAST_ACTIVITY) return null;
+  const at = sessionActivity.get(sessionId);
+  if (!at) return null;
+  const label = formatActivity(at);
+  return {
+    id: LAST_ACTIVITY_OPTION_ID,
+    name: "Last activity",
+    description: `This thread was last active ${label}`,
+    type: "select",
+    currentValue: OWN_VALUE_ID,
+    options: [{ value: OWN_VALUE_ID, name: label }],
   };
 }
 
 /** The row Zed renders: the adapter's options minus any hidden, plus ours. Kept
  *  options pass through untouched -- only the set membership changes. */
-function withUsageOption(configOptions) {
+function withOwnOptions(configOptions, sessionId) {
   if (!Array.isArray(configOptions)) return configOptions;
   const kept = HIDDEN.size ? configOptions.filter((opt) => !HIDDEN.has(opt?.id)) : configOptions;
-  const mine = usageOption();
-  return mine ? [...kept, mine] : kept;
+  const mine = [usageOption(), lastActivityOption(sessionId)].filter(Boolean);
+  return mine.length ? [...kept, ...mine] : kept;
+}
+
+/** Record a turn, and tell the client about it. `at` comes from the agent's own
+ *  record when we have it, otherwise now. */
+function noteActivity(sessionId, at = Date.now()) {
+  if (!SHOW_LAST_ACTIVITY || !sessionId || !at) return;
+  if ((sessionActivity.get(sessionId) ?? 0) >= at) return;
+  sessionActivity.set(sessionId, at);
+  sessionActivity = writeSessionActivity(sessionActivity);
+  if (rawConfigOptions.has(sessionId)) republishConfigOptions();
 }
 
 // ---------------------------------------------------------------- framing
@@ -219,7 +274,7 @@ function republishConfigOptions() {
         sessionId,
         update: {
           sessionUpdate: "config_option_update",
-          configOptions: withUsageOption(configOptions),
+          configOptions: withOwnOptions(configOptions, sessionId),
         },
       },
     });
@@ -311,6 +366,15 @@ function transform(message) {
   const answered = isResponse ? pendingSessionIds.get(message.id) : undefined;
   if (isResponse) pendingSessionIds.delete(message.id);
 
+  // session/list is how Zed populates its thread list, and each SessionInfo
+  // carries the agent's own updatedAt -- history we could not otherwise know.
+  if (Array.isArray(message?.result?.sessions)) {
+    for (const info of message.result.sessions) {
+      const at = info?.updatedAt ? Date.parse(info.updatedAt) : NaN;
+      if (info?.sessionId && Number.isFinite(at)) noteActivity(info.sessionId, at);
+    }
+  }
+
   // Config options arrive on the session/new and session/load responses.
   if (message?.result?.configOptions) {
     const { configOptions } = message.result;
@@ -321,7 +385,7 @@ function transform(message) {
     if (!usage) void refreshUsage({ reason: "session start" });
     return {
       ...message,
-      result: { ...message.result, configOptions: withUsageOption(configOptions) },
+      result: { ...message.result, configOptions: withOwnOptions(configOptions, sessionId) },
     };
   }
 
@@ -337,7 +401,7 @@ function transform(message) {
       ...message,
       params: {
         ...message.params,
-        update: { ...update, configOptions: withUsageOption(update.configOptions) },
+        update: { ...update, configOptions: withOwnOptions(update.configOptions, sessionId) },
       },
     };
   }
@@ -345,6 +409,7 @@ function transform(message) {
   // Turn end: the one moment the numbers are guaranteed to have moved.
   if (update.sessionUpdate === "usage_update") {
     lastTurnAt = Date.now();
+    noteActivity(sessionId);
     void refreshUsage({ reason: "turn end" });
   }
 
@@ -363,6 +428,7 @@ function interceptFromClient(message) {
   // Turn start: worth a look before the user commits to a prompt.
   if (message?.method === "session/prompt") {
     lastTurnAt = Date.now();
+    noteActivity(message.params?.sessionId);
     void refreshUsage({ reason: "turn start" });
   }
 
@@ -370,17 +436,18 @@ function interceptFromClient(message) {
   if (message?.method === "session/close" || message?.method === "session/delete") {
     const gone = message.params?.sessionId;
     if (gone && rawConfigOptions.delete(gone)) log(`forgot session ${gone}`);
+    if (gone) sessionActivity.delete(gone);
   }
 
   if (message?.method !== "session/set_config_option") return false;
-  if (message.params?.configId !== USAGE_OPTION_ID) return false;
+  if (!OWN_OPTION_IDS.has(message.params?.configId)) return false;
   const sessionId = message.params?.sessionId;
-  log(`answering set_config_option for ${USAGE_OPTION_ID} (session ${sessionId})`);
+  log(`answering set_config_option for ${message.params.configId} (session ${sessionId})`);
   if (message.id !== undefined) {
     send({
       jsonrpc: "2.0",
       id: message.id,
-      result: { configOptions: withUsageOption(rawConfigOptions.get(sessionId) ?? []) },
+      result: { configOptions: withOwnOptions(rawConfigOptions.get(sessionId) ?? [], sessionId) },
     });
   }
   return true;
