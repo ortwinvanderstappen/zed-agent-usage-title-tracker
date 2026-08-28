@@ -14,6 +14,10 @@ the exact reset times. The second item is when the thread was last worked in —
 Zed's thread list only shows that relatively ("9m"), which is no help on
 returning to a thread days later.
 
+Either item can be switched off in the agent's `env` block:
+`ZED_AGENT_USAGE_LAST_ACTIVITY=off` drops the timestamp,
+`ZED_AGENT_USAGE_MARKER=off` the warning marker.
+
 <img width="696" height="130" alt="image" src="https://github.com/user-attachments/assets/7e41e3f0-ad1e-4a21-bec2-0159c3485904" />
 <img width="697" height="131" alt="image" src="https://github.com/user-attachments/assets/a3cb0758-029b-49d9-96e8-c6dfc5e3c648" />
 <img width="200" height="215" alt="image" src="https://github.com/user-attachments/assets/bba88290-8201-4f0b-8754-4d336acb1440" />
